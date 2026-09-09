@@ -18,7 +18,7 @@ Lane positioning (see this plugin's `docs/delegation-guide.md`):
 Preflight (cheap, mandatory — run inside the same Bash call as the forward):
 
 ```bash
-AGY=$(command -v agy 2>/dev/null || ls "${LOCALAPPDATA//\\//}/agy/bin/agy.exe" "$HOME/.gemini/bin/agy.exe" "$HOME/.local/bin/agy" 2>/dev/null | head -1)
+AGY=$(command -v agy 2>/dev/null || ls "${LOCALAPPDATA//\\//}/agy/bin/agy.exe" "$HOME/.gemini/bin/agy.exe" "$HOME/.gemini/bin/agy" "$HOME/.local/bin/agy" 2>/dev/null | head -1)
 [ -n "$AGY" ] || { echo "antigravity-rescue: agy not found — run /antigravity:setup"; exit 127; }
 grep -q '"deny"' "$HOME/.gemini/antigravity-cli/settings.json" 2>/dev/null || { echo "antigravity-rescue: no permissions.deny block in ~/.gemini/antigravity-cli/settings.json — refusing to run with --dangerously-skip-permissions. Run /antigravity:setup first."; exit 78; }
 ```
@@ -37,16 +37,18 @@ TASK=$(cat <<'EOF_TASK'
 Constraints: work directly in this workspace following the instructions above. Do not invoke other AI CLIs (claude, codex, copilot, gemini, ollama). Do not commit, push, switch branches or delete files. If a command is denied by policy, stop and report it — do not look for another way to run it. Leave your changes in the working tree and end with a short list of the files you touched.
 EOF_TASK
 )
-GIT_TERMINAL_PROMPT=0 "$AGY" -p "$TASK" \
+GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="ssh -o BatchMode=yes" "$AGY" -p "$TASK" \
   --add-dir "$PWD" \
   --dangerously-skip-permissions \
   --disable-slash-commands \
   --output-format text \
-  --print-timeout 9m
+  --print-timeout 9m \
+  [--model <slug>] [--effort low|medium|high] [--continue]
 ```
 
-- `GIT_TERMINAL_PROMPT=0` makes any git command that would ask for credentials fail immediately instead of hanging the headless turn until the print timeout.
-
+- The heredoc delimiter must not occur anywhere in the task text. Use `EOF_TASK` unless the task contains that string; then pick another (e.g. `EOF_TASK_7f3a`). A task line equal to the delimiter would end the heredoc early and run the rest of the task as shell.
+- The bracketed placeholders are optional flags: drop the ones the request did not ask for. Never pass literal brackets.
+- `GIT_TERMINAL_PROMPT=0` and `GIT_SSH_COMMAND="ssh -o BatchMode=yes"` make any git command that would wait for credentials, an SSH passphrase or a host-key confirmation fail immediately instead of hanging the headless turn until the print timeout.
 - `--add-dir "$PWD"` registers the repo as the workspace. Headless runs do not trust the current directory on their own; without it even reads are soft-denied.
 - `--disable-slash-commands` stops a task that begins with `/` from being expanded as an `agy` slash command.
 - `--print-timeout 9m` stays under the Bash tool ceiling. On timeout `agy` exits 0 with the partial output and an `[agy] print timeout` line on stderr instead of being killed mid-turn.
@@ -58,9 +60,8 @@ GIT_TERMINAL_PROMPT=0 "$AGY" -p "$TASK" \
 
 Result handling:
 
-- Return `agy` stdout exactly as-is.
-- Append any stderr lines that start with `jetski:` or `[agy]`. These are the stable diagnostic markers: soft-denied tool actions (a task that needed a denied command reports here), print-timeout partial output, and fatal errors.
-- Exit code 1 with `authentication required` or `not logged into Antigravity` on stderr → tell the caller to run `/antigravity:setup` (sign-in happens in an interactive `agy` session).
+- The Bash tool returns stdout and stderr together. Return `agy`'s stdout exactly as-is, keep the stderr lines that start with `jetski:`, `[agy]` or `error:`, and drop other stderr noise (Go log lines mentioning `logging before google.Init`). The kept markers are the stable diagnostics: soft-denied tool actions (a task that needed a denied command reports here), print-timeout partial output, and fatal errors.
+- Exit code 1 with `authentication required` or `not logged into Antigravity` → tell the caller to sign in once by running `agy` interactively (browser flow) and then run `/antigravity:setup`.
 - Output mentioning `quota`, `rate limit`, `RESOURCE_EXHAUSTED`, `429` or exhausted `credits` → return it verbatim and stop. Do not retry; the caller decides whether to fall back to another delegate or take over.
 - Any other non-zero exit → return stderr verbatim.
 

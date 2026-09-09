@@ -9,7 +9,7 @@ Run these steps in order and finish with one consolidated status block. Never pr
 Step 1 — Locate the binary
 
 ```bash
-AGY=$(command -v agy 2>/dev/null || ls "${LOCALAPPDATA//\\//}/agy/bin/agy.exe" "$HOME/.gemini/bin/agy.exe" "$HOME/.local/bin/agy" 2>/dev/null | head -1); echo "${AGY:-NOT FOUND}"
+AGY=$(command -v agy 2>/dev/null || ls "${LOCALAPPDATA//\\//}/agy/bin/agy.exe" "$HOME/.gemini/bin/agy.exe" "$HOME/.gemini/bin/agy" "$HOME/.local/bin/agy" 2>/dev/null | head -1); echo "${AGY:-NOT FOUND}"
 ```
 
 - Not found → use `AskUserQuestion` exactly once with two options: `Install Antigravity CLI (Recommended)` and `Skip for now`. Install commands: Windows PowerShell `irm https://antigravity.google/cli/install.ps1 | iex`; macOS/Linux `curl -fsSL https://antigravity.google/cli/install.sh | bash`. Rerun Step 1 afterwards. If the user skips, jump to the report.

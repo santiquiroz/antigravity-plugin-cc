@@ -100,7 +100,7 @@ TASK=$(cat <<'EOF_TASK'
 Constraints: work directly in this workspace following the instructions above. Do not invoke other AI CLIs (claude, codex, copilot, gemini, ollama). Do not commit, push, switch branches or delete files. If a command is denied by policy, stop and report it — do not look for another way to run it. Leave your changes in the working tree and end with a short list of the files you touched.
 EOF_TASK
 )
-GIT_TERMINAL_PROMPT=0 agy -p "$TASK" \
+GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="ssh -o BatchMode=yes" agy -p "$TASK" \
   --add-dir "$PWD" \
   --dangerously-skip-permissions \
   --disable-slash-commands \
@@ -133,13 +133,16 @@ So `/antigravity:setup` merges this deny list ([docs/permissions.json](docs/perm
 |---|---|
 | `command(regex:.*\bgit\s+push\b.*)` | pushing to shared state |
 | `command(regex:.*\bgit\s+reset\b.*)` / `git\s+clean` | discarding work |
-| `command(regex:.*\brm\b.*)` / `rmdir` / `del` / `rd` / `Remove-Item` | deleting files (POSIX, cmd and PowerShell spellings) |
+| `command(regex:.*\brm\b.*)` / `rmdir` / `del` / `erase` / `rd` / `ri` / `Remove-Item` / `find … -delete` | deleting files (POSIX, cmd and PowerShell spellings) |
 | `command(regex:.*\bsudo\b.*)` | privilege escalation |
 | `write_file(.git/)` | editing repository metadata |
 
 The regexes use `\b` so `transform`, `perform`, `delete` and friends are not
-caught. The subagent **refuses to run** if the settings file has no
-`permissions.deny` block.
+caught, and they are deliberately **unanchored** so `xargs rm`, `git rm` and
+`sh -c "rm …"` are caught too. The cost is a false positive when a file name
+is itself a blocked word (`cat rm.txt`); the delegate then reports the denial
+and stops, which is the safe failure. The subagent **refuses to run** if the
+settings file has no `permissions.deny` block.
 
 What this does **not** cover — know it before delegating:
 

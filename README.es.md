@@ -104,7 +104,7 @@ TASK=$(cat <<'EOF_TASK'
 Constraints: work directly in this workspace following the instructions above. Do not invoke other AI CLIs (claude, codex, copilot, gemini, ollama). Do not commit, push, switch branches or delete files. If a command is denied by policy, stop and report it — do not look for another way to run it. Leave your changes in the working tree and end with a short list of the files you touched.
 EOF_TASK
 )
-GIT_TERMINAL_PROMPT=0 agy -p "$TASK" \
+GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="ssh -o BatchMode=yes" agy -p "$TASK" \
   --add-dir "$PWD" \
   --dangerously-skip-permissions \
   --disable-slash-commands \
@@ -142,13 +142,17 @@ Por lo tanto, `/antigravity:setup` fusiona esta lista de denegación
 |---|---|
 | `command(regex:.*\bgit\s+push\b.*)` | hacer push a un estado compartido |
 | `command(regex:.*\bgit\s+reset\b.*)` / `git\s+clean` | descartar trabajo |
-| `command(regex:.*\brm\b.*)` / `rmdir` / `del` / `rd` / `Remove-Item` | eliminar archivos (variantes de POSIX, cmd y PowerShell) |
+| `command(regex:.*\brm\b.*)` / `rmdir` / `del` / `erase` / `rd` / `ri` / `Remove-Item` / `find … -delete` | eliminar archivos (variantes de POSIX, cmd y PowerShell) |
 | `command(regex:.*\bsudo\b.*)` | escalamiento de privilegios |
 | `write_file(.git/)` | editar metadatos del repositorio |
 
 Las expresiones regulares usan `\b` para no capturar `transform`, `perform`,
-`delete` ni términos similares. El subagente **se niega a ejecutarse** si el
-archivo de configuración no tiene un bloque `permissions.deny`.
+`delete` ni términos similares, y están deliberadamente **sin anclar** para que
+`xargs rm`, `git rm` y `sh -c "rm …"` también sean capturados. El costo es un
+falso positivo cuando el nombre de un archivo es en sí mismo una palabra
+bloqueada (`cat rm.txt`); el delegado entonces reporta la denegación y se
+detiene, lo cual es la falla segura. El subagente **se niega a ejecutarse** si
+el archivo de configuración no tiene un bloque `permissions.deny`.
 
 Lo que esto **no** cubre — tenlo presente antes de delegar:
 

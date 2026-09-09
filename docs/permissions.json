@@ -7,8 +7,11 @@
       "command(regex:.*\\brm\\b.*)",
       "command(regex:.*\\brmdir\\b.*)",
       "command(regex:.*\\bdel\\b.*)",
+      "command(regex:.*\\berase\\b.*)",
       "command(regex:.*\\brd\\b.*)",
+      "command(regex:.*\\bri\\b.*)",
       "command(regex:.*\\bRemove-Item\\b.*)",
+      "command(regex:.*\\bfind\\b.*-delete\\b.*)",
       "command(regex:.*\\bsudo\\b.*)",
       "write_file(.git/)"
     ]
