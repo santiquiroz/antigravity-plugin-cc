@@ -1,0 +1,21 @@
+{
+  "name": "antigravity-plugin-cc",
+  "owner": {
+    "name": "santiquiroz"
+  },
+  "metadata": {
+    "description": "Antigravity plugin for Claude Code: delegate coding tasks to Google Antigravity CLI (agy) headless.",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "antigravity",
+      "description": "Delegate coding tasks from Claude Code to Google Antigravity CLI (agy) in headless mode — a frontier-capable second lane with its own quota.",
+      "version": "0.1.0",
+      "author": {
+        "name": "Santiago Quiroz Upegui"
+      },
+      "source": "./"
+    }
+  ]
+}

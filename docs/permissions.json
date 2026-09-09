@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "deny": [
+      "command(regex:.*\\bgit\\s+push\\b.*)",
+      "command(regex:.*\\bgit\\s+reset\\b.*)",
+      "command(regex:.*\\bgit\\s+clean\\b.*)",
+      "command(regex:.*\\brm\\b.*)",
+      "command(regex:.*\\brmdir\\b.*)",
+      "command(regex:.*\\bdel\\b.*)",
+      "command(regex:.*\\brd\\b.*)",
+      "command(regex:.*\\bRemove-Item\\b.*)",
+      "command(regex:.*\\bsudo\\b.*)",
+      "write_file(.git/)"
+    ]
+  }
+}
