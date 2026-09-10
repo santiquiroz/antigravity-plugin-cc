@@ -76,34 +76,134 @@ Delegación explícita:
 /antigravity:rescue --model claude-opus-4-6-thinking second opinion: review the diff of HEAD for race conditions, report only, do not edit
 ```
 
-Delegación proactiva: el agente `antigravity-rescue` se describe a sí mismo
-para que Claude Code lo elija por su cuenta cuando coincidan los activadores.
-Para integrarlo en tus propias reglas de delegación, pega el bloque de
+### Flags y límites
+
+Coloca primero los flags y después el texto de la tarea (el comando los
+reconoce en cualquier parte de la solicitud, pero mantenerlos al principio
+evita que se interpreten como parte de la tarea).
+
+- `--wait` (predeterminado) — en primer plano. Claude Code se bloquea en una
+  sola llamada a `agy` y no muestra nada hasta que retorna; una ejecución puede
+  tardar hasta 9 minutos sin mostrar progreso. Interrumpirla (Esc / Ctrl+C) no
+  revierte nada: lo que `agy` ya haya editado permanece en tu árbol de trabajo;
+  ejecuta `git diff` antes de hacer cualquier otra cosa.
+- `--background` — Claude Code envía el subagente en segundo plano y sigue
+  trabajando; la salida se te reenvía cuando termina la ejecución. Úsalo para
+  cualquier cosa que pueda tardar más de un minuto.
+- `--model <slug>` / `--effort low|medium|high` — consulta «Dos pools de
+  cuota» más abajo.
+
+Cada ejecución está limitada a 9 minutos (`--print-timeout 9m`). Al alcanzar
+el límite, `agy` termina con código 0 y devuelve la salida disponible junto con
+una línea `[agy] print timeout` (conservada desde stderr y añadida al
+resultado); las ediciones hechas hasta entonces ya están en tu árbol de
+trabajo. Por tanto, el código 0 no significa que la tarea haya terminado: lee
+la salida y `git diff`. Dimensiona las tareas para que quepan: un archivo de
+especificación, una corrección de build, un diagnóstico.
+
+**Reanudar.** `--continue` no es un flag de `/antigravity:rescue`; el
+subagente lo añade por su cuenta cuando tu solicitud continúa claramente un
+trabajo anterior de Antigravity en este repositorio (expresiones como
+«continúa», «sigue», «reanuda», por ejemplo
+`/antigravity:rescue continue the previous task: <one-line recap of what was left>`).
+`agy --continue` reanuda la conversación más reciente del workspace activo, por
+lo que también puede retomar una sesión interactiva de `agy` que hayas ejecutado
+en el mismo repositorio; si desde entonces has usado `agy`, vuelve a describir
+la tarea completa. Nunca se añade durante el cambio automático de pool.
+
+### Delegación proactiva
+
+La descripción del agente `antigravity-rescue` indica a Claude Code que lo use
+por su cuenta cuando tu delegado principal de razonamiento se quede sin cuota
+u ocupado, cuando una segunda opinión acotada merezca una ejecución o para
+trabajo mecánico en Flash cuando tu carril mecánico esté agotado; así, una vez
+instalado el plugin, puede activarse en cualquier sesión de Claude Code sin que
+escribas el comando. Esa ejecución envía el texto de la tarea a los modelos de
+Google y les permite leer y editar archivos del repositorio actual con las
+ediciones aprobadas automáticamente (la lista de denegación sigue aplicándose).
+Lo que separa eso de tu árbol de trabajo es el propio sistema de permisos de
+Claude Code: la única herramienta del subagente es `Bash`, así que en el modo
+de permisos predeterminado (y `acceptEdits`) apruebas el comando que lanza `agy`
+antes de que se ejecute, salvo que lo hayas añadido a la lista de permitidos o
+hayas respondido «no volver a preguntar»; en modo bypass /
+`--dangerously-skip-permissions` se ejecuta sin preguntar. No existe un
+interruptor obligatorio que limite al agente a `/antigravity:rescue` (el
+comando envía al mismo subagente), así que si quieres delegar solo cuando lo
+pidas: omite el fragmento de CLAUDE.md de abajo, mantén activado el aviso de
+Bash y añade esta línea a tu `~/.claude/CLAUDE.md`; es una instrucción que Claude
+Code sigue, no una regla de permisos:
+
+```
+Never launch antigravity:antigravity-rescue on your own; use it only when I invoke /antigravity:rescue explicitly.
+```
+
+Para convertir la delegación proactiva en algo habitual, pega el bloque de
 [docs/claude-md-snippet.md](docs/claude-md-snippet.md) en tu `CLAUDE.md`.
-La división multicarril, el patrón en paralelo, los límites de WIP y la
-cadena de fallback por cuota se encuentran en
+La división multicarril, el patrón en paralelo, los límites de WIP y la cadena
+de fallback por cuota se encuentran en
 [docs/delegation-guide.md](docs/delegation-guide.md).
 
 ### Dos pools de cuota
 
 Antigravity mide los **modelos Gemini** en una cuota semanal y los **modelos Claude + GPT-OSS**
 en una cuota separada (Antigravity app → Settings → Models & Usage muestra
-ambos indicadores). El subagente los trata como dos carriles dentro del mismo CLI:
+ambos indicadores; con solo el CLI instalado, `agy -p "/usage"` los imprime;
+consulta más abajo). El subagente los trata como dos carriles dentro del mismo
+CLI:
 
 | Clase de tarea | Pool Gemini | Pool Claude/GPT |
 |---|---|---|
 | mecánica (specs, renombres, boilerplate) | `gemini-3.8-flash-low` / `-medium` | `gpt-oss-120b-medium` |
 | diagnóstico, corrección del build, refactorización | `gemini-3.1-pro-high` | `claude-sonnet-4-6` |
 | segunda opinión, razonamiento más complejo | `gemini-3.1-pro-high` | `claude-opus-4-6-thinking` |
-| no se pasa nada | valor predeterminado configurado en agy (`/model <name>` en una sesión interactiva) | — |
+| no se pasa nada | valor predeterminado configurado en agy — `agy -p "/model"` lo imprime; `/model <name>` lo cambia en una sesión interactiva | — |
 
-Cuando una ejecución sobre un modelo Gemini falla por cuota (`quota`, `rate limit`,
-`RESOURCE_EXHAUSTED`, `429`, `weekly limit`), el subagente vuelve a ejecutar la misma tarea
-**una vez** en el pool Claude/GPT y antepone al resultado el prefijo
-`[antigravity-rescue] Gemini pool exhausted, reran on <slug>`. Una ejecución que ya está en
-el pool Claude/GPT y alcanza el límite de cuota se devuelve textualmente: ambos pools están agotados.
-Pasa `--model claude-sonnet-4-6` (o indica que el pool Gemini está bajo) para comenzar
-directamente en el segundo pool.
+Antes de cada ejecución, el subagente consulta ambos indicadores con un
+`agy -p "/usage"` gratuito (sin turno del agente ni gasto de cuota) y elige el
+pool: si el pool del modelo solicitado está al 2 % o menos y el otro tiene
+capacidad, ejecuta la tarea en el equivalente del otro pool y comienza la salida
+con `[antigravity-rescue] <pool> pool at NN%, running on <slug> instead`; si
+ambos pools están agotados, no ejecuta nada y devuelve
+`[antigravity-rescue] both Antigravity pools exhausted (...)` con los tiempos de
+reinicio. Esto importa porque un pool agotado no falla rápidamente: agy reintenta
+con backoff (`RESOURCE_EXHAUSTED (code 429)` en `cli.log`) hasta el tiempo de
+espera de impresión y después informa `status: ERROR` / `The stream was
+interrupted`: se pierden nueve minutos por intento y la salida no contiene la
+palabra cuota. Si esa firma aparece de todos modos durante la ejecución, el
+subagente vuelve a consultar `/usage` y reintenta una vez en el otro pool cuando
+tenga capacidad. Pasa `--model claude-sonnet-4-6` (o indica que el pool Gemini
+está bajo) para comenzar directamente en el segundo pool.
+
+### Consultar cuota y modelo desde el CLI
+
+El modo de impresión responde por sí mismo a los comandos slash de solo lectura:
+sin turno del agente, sin gasto de cuota y sin dejar una conversación
+(`agy ≥ 1.1.11`):
+
+```bash
+agy -p "/usage"                        # one line per pool: name, "Weekly Limit Remaining", % left, reset time (/quota is an alias)
+agy -p "/usage" --output-format json   # same data under command.data.groups[].buckets[].remaining_fraction / reset_time
+agy -p "/model"                        # the default slug used when no --model is passed
+agy -p "/help"                         # every command print mode answers this way
+agy models                             # valid slugs (plain text only)
+```
+
+`/credits` es otro indicador — créditos adquiribles y un enlace de actualización
+—, no los dos pools semanales.
+
+Dos trampas: (1) **no** añadas `--disable-slash-commands` a estas llamadas; con
+él, el texto llega al modelo, que responde como si el comando se hubiera
+ejecutado, y ese turno gasta cuota; por eso el reenviador ejecuta el preflight
+sin el flag y la tarea con él. (2) En Git Bash — que es lo que usa la herramienta
+Bash de Claude Code en Windows — la conversión de rutas de MSYS reescribe el
+argumento `/usage` como `C:/Program Files/Git/usage` antes de que agy lo vea, y
+eso también se convierte en un turno del agente que gasta cuota. Antepon
+`MSYS_NO_PATHCONV=1` a la llamada o ejecútala desde PowerShell/cmd.
+
+El modelo usado por una delegación: el slug que pasaste con `--model`; de lo
+contrario, lo que imprime `agy -p "/model"` (o el cambio de pool anunciado en
+la primera línea de la salida). Ni el texto ni el resultado JSON de una
+ejecución contienen un campo de modelo por ejecución.
 
 `--effort low|medium|high` solo aplica a los slugs de Gemini; los slugs de Claude y GPT-OSS
 llevan el esfuerzo en el nombre y agy rechaza el flag para ellos.
@@ -155,7 +255,7 @@ Por lo tanto, `/antigravity:setup` fusiona esta lista de denegación
 | Regla | Bloquea |
 |---|---|
 | `command(regex:.*\bgit\s+push\b.*)` | hacer push a un estado compartido |
-| `command(regex:.*\bgit\s+reset\b.*)` / `git\s+clean` | descartar trabajo |
+| `command(regex:.*\bgit\s+reset\b.*)` / `git\s+clean` | descartar trabajo mediante `reset`/`clean` (`checkout --`, `restore` y `stash` no están denegados; consulta más abajo) |
 | `command(regex:.*\brm\b.*)` / `rmdir` / `del` / `erase` / `rd` / `ri` / `Remove-Item` / `find … -delete` | eliminar archivos (variantes de POSIX, cmd y PowerShell) |
 | `command(regex:.*\bsudo\b.*)` | escalamiento de privilegios |
 | `write_file(.git/)` | editar metadatos del repositorio |
@@ -176,15 +276,35 @@ Lo que esto **no** cubre — tenlo presente antes de delegar:
   pero la seguridad del reenviador depende de ello.
 - Bajo `--dangerously-skip-permissions`, la obtención web (`read_url`), el
   navegador y las herramientas MCP también se aprueban automáticamente. No
-  delegues tareas que procesen contenido no confiable, y agrega `read_url(*)` /
-  `mcp(*)` a `permissions.deny` si nunca quieres que el delegado esté en línea.
+  delegues tareas que procesen contenido no confiable. Añadir `read_url(*)` /
+  `mcp(*)` a `permissions.deny` bloquea únicamente las herramientas web y MCP
+  integradas de agy; los comandos de shell como `curl`, `wget`,
+  `Invoke-WebRequest`, `npm install` o `pip install` siguen aprobándose
+  automáticamente, por lo que el delegado nunca queda completamente sin
+  conexión a menos que también los deniegues (lo que rompe los builds que los
+  necesitan).
 - Las denegaciones por patrón son del tipo best-effort, como cualquier lista de
-  permisión/denegación en CLI: un comando escrito de forma inusual podría
-  filtrarse. Revisa `git diff` antes de hacer commit; el delegado nunca hace
-  commit.
-- `--add-dir "$PWD"` registra el repositorio como el espacio de trabajo para
-  que aplique el alcance de workspace propio de agy; el delegado se ejecuta con
-  los mismos privilegios de tu usuario.
+  permisos/denegación en CLI: un comando escrito de forma inusual podría
+  filtrarse.
+- El párrafo de restricciones del prompt (`Do not commit, push, switch
+  branches or delete files`) es una solicitud al modelo, no una regla. De ellas,
+  solo `push` y la familia `rm` están realmente denegados: `git commit`,
+  `git checkout`, `git switch`, `git restore`, `git stash` y `git rebase` no lo
+  están, así que un delegado que ignore el prompt puede hacer commit o descartar
+  tus cambios sin commit. Haz commit o stash de tu propio trabajo antes de
+  delegar y revisa `git log` y `git stash list`, además de `git diff`. Para
+  imponerlo, añade
+  `command(regex:.*\bgit\s+(commit|checkout|switch|restore|stash|rebase)\b.*)`
+  a `permissions.deny`: es global, por lo que también bloquea esos comandos en
+  tus sesiones interactivas de `agy`.
+- `--add-dir "$PWD"` registra el repositorio como workspace para las propias
+  herramientas de archivos de agy; no es un sandbox. Los comandos de shell se
+  ejecutan como tu usuario del sistema, con tu entorno, y pueden acceder a
+  cualquier ruta del disco (`~/.ssh`, `.env`, almacenes de credenciales). El
+  delegado edita tu árbol de trabajo activo, no una copia: no edites los mismos
+  archivos mientras haya una ejecución `--background` en curso. Para repositorios
+  que contengan secretos o tareas que procesen entradas no confiables, ejecuta
+  el delegado con otro usuario del sistema o en un contenedor.
 
 ## Comportamientos conocidos de agy que este plugin mitiga
 
@@ -195,7 +315,8 @@ Lo que esto **no** cubre — tenlo presente antes de delegar:
 | Una tarea que comienza con `/` se expande como un slash command | `--disable-slash-commands` |
 | `--print-timeout` devuelve una salida parcial con exit 0 | fijado en 9m, por debajo del límite de la herramienta Bash, para que un turno largo se degrade en lugar de ser cancelado |
 | El instalador puede dejar `agy` fuera del PATH (visto en Windows: binario en `%LOCALAPPDATA%\agy\bin` y `~/.gemini/bin`, ninguno en el PATH) | el subagente y setup resuelven esos directorios por sí mismos; setup ofrece `agy install` |
-| `/usage` y `/credits` son solo interactivos; sin verificación de cuota en modo headless | setup te indica dónde consultar; un error de cuota de Gemini dispara una nueva ejecución en el pool Claude/GPT; un error de cuota de Claude/GPT se devuelve textualmente |
+| Un pool agotado no falla rápidamente: agy reintenta con backoff hasta el tiempo de espera de impresión y después informa `status: ERROR` / `The stream was interrupted` sin mencionar la cuota | el reenviador consulta ambos indicadores con `agy -p "/usage"` (gratuito) antes de cada ejecución y elige el pool; si ambos están agotados, devuelve el resultado inmediatamente sin ejecutar |
+| `agy -p "/usage"` en Git Bash se convierte en un turno de modelo de pago (MSYS reescribe `/usage` como una ruta de Windows) | `MSYS_NO_PATHCONV=1` en cada comando slash en modo de impresión |
 | `--effort` es rechazado para los slugs de Claude y GPT-OSS | el flag solo se reenvía con slugs de Gemini |
 
 ## Qué incluye el plugin

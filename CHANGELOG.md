@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.3.0 — 2026-09-10
+
+- Quota-aware pool selection: before every run the subagent reads both weekly
+  gauges with `agy -p "/usage"` (answered by print mode for free, agy ≥ 1.1.11)
+  and the default slug with `agy -p "/model"`, then picks the pool that has
+  room; both pools out → it returns immediately without running. Replaces the
+  reactive text match: an exhausted pool does not fail fast — agy retries with
+  backoff (`RESOURCE_EXHAUSTED (code 429)` only in `cli.log`) until the print
+  timeout and reports `status: ERROR` / `The stream was interrupted`, so the
+  old detector burned nine minutes per attempt (observed at Gemini 0 %).
+- `MSYS_NO_PATHCONV=1` on print-mode slash commands: in Git Bash `/usage` was
+  rewritten into a Windows path and became a paid model turn.
+- README audited from six newcomer perspectives (51-agent panel): safety model
+  now separates what the deny list enforces from what the prompt merely asks
+  (`git commit`/`checkout`/`stash` are not denied; `--add-dir` is not a
+  sandbox; shell `curl`/`npm install` stay online), documents `--wait` /
+  `--background`, the 9-minute cap, resuming, and how proactive delegation can
+  be restricted to explicit invocation. `/antigravity:setup` prints both
+  gauges and the default model.
+
 ## 0.2.0 — 2026-09-09
 
 - Two quota pools: Antigravity meters Gemini models and Claude + GPT-OSS

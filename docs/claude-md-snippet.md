@@ -23,8 +23,8 @@ commands.
 | Primary reasoning delegate (e.g. Codex) is quota-exhausted or busy and the task needs reasoning — build fixing after a failed attempt, multi-file refactor, root-cause diagnosis | `antigravity:antigravity-rescue` in background, `--model gemini-3.1-pro-high` or `--model claude-opus-4-6-thinking` |
 | Bounded task where an independent second opinion is worth one run — review a diff, propose an alternative fix, cross-check a diagnosis | `antigravity:antigravity-rescue` in background, frontier model |
 | Mechanical lane (e.g. Copilot) is quota-exhausted and the task is mechanical — specs, renames, boilerplate, cleanup | `antigravity:antigravity-rescue` in background, `--model gemini-3.8-flash-low` |
-| agy reports quota on the Gemini pool | The subagent already reran once on the Claude/GPT pool (Sonnet 4.6 / Opus 4.6 Thinking / GPT-OSS 120B, separate weekly quota); pass the result through |
-| agy reports quota on the Claude/GPT pool too, or an auth error | Do not retry. Fall back to the next lane or inline, and say so once |
+| Output starts with `[antigravity-rescue] ... pool at NN%, running on ...` | The subagent read both gauges (free `agy -p "/usage"`) and switched pools; pass the result through |
+| Output starts with `[antigravity-rescue] both Antigravity pools exhausted` or shows an auth error | Nothing ran. Fall back to the next lane or inline, and say so once |
 
 Never delegate: domain logic, business rules, architecture decisions,
 anything where the WHY lives in this conversation.
@@ -38,9 +38,10 @@ Rules:
   push`/`reset`/`clean`, `rm`/`del`/`Remove-Item`, `sudo`, writes under
   `.git/`) into `~/.gemini/antigravity-cli/settings.json`; the subagent
   refuses to run without them.
-- Two weekly quota pools: Gemini, and Claude + GPT-OSS. When the Gemini
-  gauge is low, start on the second pool: `--model claude-sonnet-4-6`
-  (reasoning), `--model claude-opus-4-6-thinking` (hardest reasoning) or
+- Two weekly quota pools: Gemini, and Claude + GPT-OSS. The subagent checks
+  both before every run; to see them yourself: `MSYS_NO_PATHCONV=1 agy -p
+  "/usage"` (free). Pin a pool with `--model claude-sonnet-4-6` (reasoning),
+  `--model claude-opus-4-6-thinking` (hardest reasoning) or
   `--model gpt-oss-120b-medium` (mechanical). `--effort` only with Gemini
   slugs.
 - Launch in the background and keep working. WIP cap 3–5 concurrent

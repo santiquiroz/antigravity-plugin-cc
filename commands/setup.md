@@ -31,7 +31,7 @@ Step 3 — Authentication probe
 
 - stdout `ready`, exit 0 → authenticated and working.
 - exit 1 with `authentication required` or `not logged into Antigravity` on stderr → tell the user to run `agy` once interactively (browser sign-in; over SSH it prints a URL and asks for a code) and then rerun `/antigravity:setup`.
-- A message mentioning quota, rate limit, `RESOURCE_EXHAUSTED` or credits → report that the Antigravity quota is currently exhausted; remaining quota is visible with `/usage` inside an interactive `agy` session.
+- A message mentioning quota, rate limit, `RESOURCE_EXHAUSTED` or credits, or `status: ERROR` with `The stream was interrupted` after the print timeout → report that the Antigravity quota is currently exhausted (Step 6 prints both gauges).
 
 Step 4 — Deny rules (the safety net)
 
@@ -49,14 +49,18 @@ Step 5 — Verify the deny rules bite (only if Step 4 ended OK)
 
 Expected: `BLOCKED` with `Matches user-configured deny rule`. Anything else → report that the deny rules are not being applied and stop recommending delegation until fixed.
 
-Step 6 — Models
+Step 6 — Models and quota
 
 ```bash
 "$AGY" models
+MSYS_NO_PATHCONV=1 "$AGY" -p "/usage" --output-format text --print-timeout 30s
+MSYS_NO_PATHCONV=1 "$AGY" -p "/model" --output-format text --print-timeout 30s
 ```
 
-List them and note the picks the subagent suggests, by quota pool (Gemini models and Claude + GPT-OSS models are metered on separate weekly quotas): Gemini pool `gemini-3.8-flash-low|medium` for mechanical work and `gemini-3.1-pro-high` for reasoning; Claude/GPT pool `gpt-oss-120b-medium` for mechanical work, `claude-sonnet-4-6` for reasoning and `claude-opus-4-6-thinking` for the hardest cases. `--effort` is only accepted with Gemini slugs. With no `--model` passed, agy uses its configured default (`/model <name>` inside an interactive session changes it). Remaining quota per pool is visible in the Antigravity app under Settings → Models & Usage, or with `/usage` inside an interactive `agy` session.
+The two `-p` calls are answered by print mode itself (read-only slash commands, agy ≥ 1.1.11): no agent turn, no quota spent. `MSYS_NO_PATHCONV=1` stops Git Bash from rewriting `/usage` into a Windows path (which would send it to the model as a paid turn). `/usage` prints one line per weekly pool — Gemini models, and Claude + GPT-OSS models — with the percentage left and the reset time; `/model` prints the default slug used when no `--model` is passed.
+
+List them and note the picks the subagent suggests, by quota pool (Gemini models and Claude + GPT-OSS models are metered on separate weekly quotas): Gemini pool `gemini-3.8-flash-low|medium` for mechanical work and `gemini-3.1-pro-high` for reasoning; Claude/GPT pool `gpt-oss-120b-medium` for mechanical work, `claude-sonnet-4-6` for reasoning and `claude-opus-4-6-thinking` for the hardest cases. `--effort` is only accepted with Gemini slugs. With no `--model` passed, agy uses its configured default (`/model <name>` inside an interactive session changes it). The subagent runs the same `/usage` preflight before every delegation and picks the pool that has room; a pool at 0 % does not fail fast (agy retries with backoff until the print timeout), which is why the preflight exists.
 
 Step 7 — Consolidated report
 
-One short block: binary path and on-PATH state, version vs the 1.1.28 floor, auth state, deny-rule state and the Step 5 result, and how to delegate (`/antigravity:rescue <task>`, or let the `antigravity-rescue` subagent fire proactively).
+One short block: binary path and on-PATH state, version vs the 1.1.28 floor, auth state, deny-rule state and the Step 5 result, both quota gauges with their reset times and the default model, and how to delegate (`/antigravity:rescue <task>`, or let the `antigravity-rescue` subagent fire proactively).

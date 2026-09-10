@@ -100,7 +100,7 @@ so the forwarder passes that flag on every invocation.
   auto-approved. Never delegate tasks that process untrusted content.
 - Pattern denies are best effort, like any CLI allow/deny list. Always review
   `git diff` before committing; the delegate leaves changes in the working
-  tree and never commits.
+  tree and is told not to commit — prompt text, not a deny rule; check `git log` and `git stash list` too.
 
 ## Quota fallback chain
 
@@ -118,12 +118,13 @@ credentials; run `/antigravity:setup` to re-authenticate.
    frontier model (`gemini-3.1-pro-high` or `claude-opus-4-6-thinking`).
 2. **Mechanical delegate quota out**: fail over to Antigravity on Flash
    (`gemini-3.8-flash-low` or `gemini-3.8-flash-medium`).
-3. **Antigravity Gemini pool out**: the subagent itself reruns the task once on
-   the Claude/GPT pool (`claude-sonnet-4-6`, `claude-opus-4-6-thinking` for the
-   hardest reasoning, `gpt-oss-120b-medium` for mechanical work) and prefixes
-   the result with `[antigravity-rescue] Gemini pool exhausted, reran on <slug>`.
+3. **Antigravity pool out**: the subagent reads both weekly gauges with a free
+   `agy -p "/usage"` before every run and switches pools on its own
+   (`claude-sonnet-4-6`, `claude-opus-4-6-thinking` for the hardest reasoning,
+   `gpt-oss-120b-medium` for mechanical work; or the Gemini equivalents when the
+   Claude/GPT pool is the empty one), announcing it in the first output line.
    Pass it through; no action needed from the orchestrator.
-4. **Both Antigravity pools out**: try the other delegate lane once if compatible;
+4. **Both Antigravity pools out** (the subagent returns `[antigravity-rescue] both Antigravity pools exhausted` without running): try the other delegate lane once if compatible;
    otherwise handle the task inline with Claude. Never retry an `agy` quota
    error in a loop.
 
@@ -133,7 +134,7 @@ which one picked it up, or that Claude took over inline. One line, no drama.
 If every lane is exhausted in a session: stop auto-delegating for the rest of
 the session, handle everything inline, and mention this once. Antigravity
 quotas refresh on a 5-hour window (subject to a weekly ceiling on the free tier);
-`/usage` inside an interactive `agy` session shows the remaining quota. The two pools (Gemini; Claude + GPT-OSS) are metered separately, each with its own weekly gauge in the Antigravity app under Settings → Models & Usage.
+`MSYS_NO_PATHCONV=1 agy -p "/usage"` prints the remaining quota per pool for free (also `/usage` inside an interactive session). The two pools (Gemini; Claude + GPT-OSS) are metered separately, each with its own weekly gauge in the Antigravity app under Settings → Models & Usage.
 
 ## Second opinions, not second drafts
 
