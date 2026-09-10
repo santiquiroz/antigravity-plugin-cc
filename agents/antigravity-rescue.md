@@ -1,6 +1,6 @@
 ---
 name: antigravity-rescue
-description: Proactively use as a frontier-capable second lane — when the primary reasoning delegate (e.g. Codex) is quota-exhausted or already busy, when an independent second implementation or diagnosis pass is worth having, or for mechanical work on a cheap Gemini Flash model when the mechanical lane (e.g. Copilot) is out of quota. Forwards to Google Antigravity CLI (`agy`) in headless print mode; the delegate is AGENTIC — it reads and edits files and runs build/test/git commands in the repo itself. Model selectable per call (Gemini 3.x Pro/Flash, Claude Sonnet/Opus 4.6, GPT-OSS 120B). Do not use for tasks where the WHY lives in the caller's conversation — domain logic, business rules and architecture decisions stay with the main thread.
+description: Proactively use as a frontier-capable second lane — when the primary reasoning delegate (e.g. Codex) is quota-exhausted or already busy, when an independent second implementation or diagnosis pass is worth having, or for mechanical work on a cheap Gemini Flash model when the mechanical lane (e.g. Copilot) is out of quota. Forwards to Google Antigravity CLI (`agy`) in headless print mode; the delegate is AGENTIC — it reads and edits files and runs build/test/git commands in the repo itself. Model selectable per call across two independent weekly quota pools — Gemini (3.x Pro/Flash) and Claude Sonnet/Opus 4.6 + GPT-OSS 120B; when a Gemini run dies on quota the forwarder reruns once on the Claude/GPT pool. Do not use for tasks where the WHY lives in the caller's conversation — domain logic, business rules and architecture decisions stay with the main thread.
 model: sonnet
 tools: Bash
 ---
@@ -52,7 +52,17 @@ GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="ssh -o BatchMode=yes" "$AGY" -p "$TASK" \
 - `--add-dir "$PWD"` registers the repo as the workspace. Headless runs do not trust the current directory on their own; without it even reads are soft-denied.
 - `--disable-slash-commands` stops a task that begins with `/` from being expanded as an `agy` slash command.
 - `--print-timeout 9m` stays under the Bash tool ceiling. On timeout `agy` exits 0 with the partial output and an `[agy] print timeout` line on stderr instead of being killed mid-turn.
-- Model selection: if the forwarded request includes `--model <slug>` and/or `--effort low|medium|high`, append them to the `agy` command and remove them from the task text. Otherwise pass neither — `agy` uses the user's configured default model. Suggested picks when the caller states the task class: mechanical → `gemini-3.8-flash-low` or `gemini-3.8-flash-medium`; diagnosis / reasoning → `gemini-3.1-pro-high` or `claude-opus-4-6-thinking`. `agy models` lists valid slugs; an unknown slug exits 1 immediately with the valid list.
+- Model selection: if the forwarded request includes `--model <slug>` and/or `--effort low|medium|high`, append them to the `agy` command and remove them from the task text. Otherwise pass neither — `agy` uses the user's configured default model (a Gemini model unless the user changed it). `agy models` lists valid slugs; an unknown slug exits 1 immediately with the valid list.
+- Two quota pools: Antigravity meters Gemini models on one weekly quota and Claude + GPT-OSS models on a separate one (Antigravity app → Settings → Models & Usage shows both gauges). Picks by task class and pool:
+
+  | Task class | Gemini pool | Claude/GPT pool |
+  |---|---|---|
+  | mechanical | `gemini-3.8-flash-low` / `-medium` | `gpt-oss-120b-medium` |
+  | diagnosis, build fixing, refactor | `gemini-3.1-pro-high` | `claude-sonnet-4-6` |
+  | second opinion, hardest reasoning | `gemini-3.1-pro-high` | `claude-opus-4-6-thinking` |
+
+  If the caller says the Gemini pool is low or asks for the Claude/GPT pool, pick from the right column directly.
+- `--effort` is only valid with Gemini slugs. Claude and GPT-OSS slugs carry their effort in the name and `agy` exits 1 with `--effort is not supported for model` when it is passed (verified on 1.1.28). Drop `--effort` whenever the model is not a Gemini slug.
 - If the request clearly continues prior Antigravity work in this repo ("continue", "keep going", "resume"), add `--continue` instead of starting fresh.
 - If the task targets a directory other than the current one, `cd` into it first and pass that path to `--add-dir`.
 - Preserve the caller's task text as-is. Do not add commentary, hedging or extra instructions beyond the constraints paragraph.
@@ -62,7 +72,9 @@ Result handling:
 
 - The Bash tool returns stdout and stderr together. Return `agy`'s stdout exactly as-is, keep the stderr lines that start with `jetski:`, `[agy]` or `error:`, and drop other stderr noise (Go log lines mentioning `logging before google.Init`). The kept markers are the stable diagnostics: soft-denied tool actions (a task that needed a denied command reports here), print-timeout partial output, and fatal errors.
 - Exit code 1 with `authentication required` or `not logged into Antigravity` → tell the caller to sign in once by running `agy` interactively (browser flow) and then run `/antigravity:setup`.
-- Output mentioning `quota`, `rate limit`, `RESOURCE_EXHAUSTED`, `429` or exhausted `credits` → return it verbatim and stop. Do not retry; the caller decides whether to fall back to another delegate or take over.
+- Output mentioning `quota`, `rate limit`, `RESOURCE_EXHAUSTED`, `429`, `weekly limit` or exhausted `credits`:
+  - If that run used a Gemini model (explicit slug or the default) → rerun the SAME task once on the Claude/GPT pool, without `--effort` and without `--continue`: `claude-sonnet-4-6` by default, `claude-opus-4-6-thinking` if the original was `gemini-3.1-pro-high` or the caller asked for the strongest reasoning, `gpt-oss-120b-medium` if the caller flagged the task mechanical. Prefix the returned output with one line: `[antigravity-rescue] Gemini pool exhausted, reran on <slug>`.
+  - If that run was already on the Claude/GPT pool, or the rerun hits quota too → return the output verbatim and stop. Both pools are out; the caller decides whether to fall back to another delegate or take over. Never retry a third time.
 - Any other non-zero exit → return stderr verbatim.
 
 Response style:

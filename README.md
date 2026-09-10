@@ -70,7 +70,7 @@ Explicit delegation:
 ```
 /antigravity:rescue diagnose why `npm test` fails in src/services/user-mapper.spec.ts and fix the spec
 /antigravity:rescue --background --model gemini-3.8-flash-low generate boilerplate specs for src/services/user-mapper.ts (signatures pasted below) ...
-/antigravity:rescue --model claude-opus-4-6-thinking --effort high second opinion: review the diff of HEAD for race conditions, report only, do not edit
+/antigravity:rescue --model claude-opus-4-6-thinking second opinion: review the diff of HEAD for race conditions, report only, do not edit
 ```
 
 Proactive delegation: the `antigravity-rescue` agent describes itself so Claude
@@ -80,15 +80,29 @@ delegation rules, paste the block from
 The multi-lane split, the parallel pattern, WIP caps and the quota fallback
 chain live in [docs/delegation-guide.md](docs/delegation-guide.md).
 
-Model picks the subagent suggests when you state the task class:
+### Two quota pools
 
-| Task class | `--model` |
-|---|---|
-| mechanical (specs, renames, boilerplate) | `gemini-3.8-flash-low` or `gemini-3.8-flash-medium` |
-| diagnosis, build fixing, refactor | `gemini-3.1-pro-high` |
-| second opinion on a tricky change | `claude-opus-4-6-thinking` |
-| nothing passed | agy's configured default (`/model <name>` in an interactive session) |
+Antigravity meters **Gemini models** on one weekly quota and **Claude + GPT-OSS
+models** on a separate one (Antigravity app → Settings → Models & Usage shows
+both gauges). The subagent treats them as two lanes inside the same CLI:
 
+| Task class | Gemini pool | Claude/GPT pool |
+|---|---|---|
+| mechanical (specs, renames, boilerplate) | `gemini-3.8-flash-low` / `-medium` | `gpt-oss-120b-medium` |
+| diagnosis, build fixing, refactor | `gemini-3.1-pro-high` | `claude-sonnet-4-6` |
+| second opinion, hardest reasoning | `gemini-3.1-pro-high` | `claude-opus-4-6-thinking` |
+| nothing passed | agy's configured default (`/model <name>` in an interactive session) | — |
+
+When a run on a Gemini model dies on quota (`quota`, `rate limit`,
+`RESOURCE_EXHAUSTED`, `429`, `weekly limit`), the subagent reruns the same task
+**once** on the Claude/GPT pool and prefixes the result with
+`[antigravity-rescue] Gemini pool exhausted, reran on <slug>`. A run already on
+the Claude/GPT pool that hits quota is returned verbatim: both pools are out.
+Pass `--model claude-sonnet-4-6` (or say the Gemini pool is low) to start on
+the second pool directly.
+
+`--effort low|medium|high` only applies to Gemini slugs; Claude and GPT-OSS
+slugs carry their effort in the name and agy rejects the flag for them.
 `agy models` prints the current slugs; an unknown slug exits 1 immediately.
 
 ## What the forwarder actually runs
@@ -170,7 +184,8 @@ What this does **not** cover — know it before delegating:
 | A task starting with `/` is expanded as a slash command | `--disable-slash-commands` |
 | `--print-timeout` returns partial output with exit 0 | pinned to 9m, under the Bash tool ceiling, so a long turn degrades instead of being killed |
 | Installer may leave `agy` off PATH (seen on Windows: binary in `%LOCALAPPDATA%\agy\bin` and `~/.gemini/bin`, neither on PATH) | subagent and setup resolve those dirs themselves; setup offers `agy install` |
-| `/usage` and `/credits` are interactive only | setup tells you where to look; quota errors are returned verbatim, never retried |
+| `/usage` and `/credits` are interactive only; no headless quota check | setup tells you where to look; a Gemini quota error triggers one rerun on the Claude/GPT pool, a Claude/GPT quota error is returned verbatim |
+| `--effort` is rejected for Claude and GPT-OSS slugs | the flag is only forwarded with Gemini slugs |
 
 ## What's in the plugin
 

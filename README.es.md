@@ -73,7 +73,7 @@ Delegación explícita:
 ```
 /antigravity:rescue diagnose why `npm test` fails in src/services/user-mapper.spec.ts and fix the spec
 /antigravity:rescue --background --model gemini-3.8-flash-low generate boilerplate specs for src/services/user-mapper.ts (signatures pasted below) ...
-/antigravity:rescue --model claude-opus-4-6-thinking --effort high second opinion: review the diff of HEAD for race conditions, report only, do not edit
+/antigravity:rescue --model claude-opus-4-6-thinking second opinion: review the diff of HEAD for race conditions, report only, do not edit
 ```
 
 Delegación proactiva: el agente `antigravity-rescue` se describe a sí mismo
@@ -84,15 +84,29 @@ La división multicarril, el patrón en paralelo, los límites de WIP y la
 cadena de fallback por cuota se encuentran en
 [docs/delegation-guide.md](docs/delegation-guide.md).
 
-Elecciones de modelo que el subagente sugiere cuando indicas la clase de tarea:
+### Dos pools de cuota
 
-| Clase de tarea | `--model` |
-|---|---|
-| mecánica (specs, renombres, boilerplate) | `gemini-3.8-flash-low` o `gemini-3.8-flash-medium` |
-| diagnóstico, corrección del build, refactorización | `gemini-3.1-pro-high` |
-| segunda opinión sobre un cambio complejo | `claude-opus-4-6-thinking` |
-| no se pasa nada | valor predeterminado configurado en agy (`/model <name>` en una sesión interactiva) |
+Antigravity mide los **modelos Gemini** en una cuota semanal y los **modelos Claude + GPT-OSS**
+en una cuota separada (Antigravity app → Settings → Models & Usage muestra
+ambos indicadores). El subagente los trata como dos carriles dentro del mismo CLI:
 
+| Clase de tarea | Pool Gemini | Pool Claude/GPT |
+|---|---|---|
+| mecánica (specs, renombres, boilerplate) | `gemini-3.8-flash-low` / `-medium` | `gpt-oss-120b-medium` |
+| diagnóstico, corrección del build, refactorización | `gemini-3.1-pro-high` | `claude-sonnet-4-6` |
+| segunda opinión, razonamiento más complejo | `gemini-3.1-pro-high` | `claude-opus-4-6-thinking` |
+| no se pasa nada | valor predeterminado configurado en agy (`/model <name>` en una sesión interactiva) | — |
+
+Cuando una ejecución sobre un modelo Gemini falla por cuota (`quota`, `rate limit`,
+`RESOURCE_EXHAUSTED`, `429`, `weekly limit`), el subagente vuelve a ejecutar la misma tarea
+**una vez** en el pool Claude/GPT y antepone al resultado el prefijo
+`[antigravity-rescue] Gemini pool exhausted, reran on <slug>`. Una ejecución que ya está en
+el pool Claude/GPT y alcanza el límite de cuota se devuelve textualmente: ambos pools están agotados.
+Pasa `--model claude-sonnet-4-6` (o indica que el pool Gemini está bajo) para comenzar
+directamente en el segundo pool.
+
+`--effort low|medium|high` solo aplica a los slugs de Gemini; los slugs de Claude y GPT-OSS
+llevan el esfuerzo en el nombre y agy rechaza el flag para ellos.
 `agy models` imprime los slugs actuales; un slug desconocido termina con código 1 inmediatamente.
 
 ## Qué ejecuta realmente el reenviador
@@ -181,7 +195,8 @@ Lo que esto **no** cubre — tenlo presente antes de delegar:
 | Una tarea que comienza con `/` se expande como un slash command | `--disable-slash-commands` |
 | `--print-timeout` devuelve una salida parcial con exit 0 | fijado en 9m, por debajo del límite de la herramienta Bash, para que un turno largo se degrade en lugar de ser cancelado |
 | El instalador puede dejar `agy` fuera del PATH (visto en Windows: binario en `%LOCALAPPDATA%\agy\bin` y `~/.gemini/bin`, ninguno en el PATH) | el subagente y setup resuelven esos directorios por sí mismos; setup ofrece `agy install` |
-| `/usage` y `/credits` son solo interactivos | setup te indica dónde consultar; los errores de cuota se devuelven textualmente, nunca se reintentan |
+| `/usage` y `/credits` son solo interactivos; sin verificación de cuota en modo headless | setup te indica dónde consultar; un error de cuota de Gemini dispara una nueva ejecución en el pool Claude/GPT; un error de cuota de Claude/GPT se devuelve textualmente |
+| `--effort` es rechazado para los slugs de Claude y GPT-OSS | el flag solo se reenvía con slugs de Gemini |
 
 ## Qué incluye el plugin
 

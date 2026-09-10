@@ -55,7 +55,7 @@ Step 6 — Models
 "$AGY" models
 ```
 
-List them and note the picks the subagent suggests: `gemini-3.8-flash-low|medium` for mechanical work, `gemini-3.1-pro-high` or `claude-opus-4-6-thinking` for diagnosis and reasoning. With no `--model` passed, agy uses its configured default (`/model <name>` inside an interactive session changes it).
+List them and note the picks the subagent suggests, by quota pool (Gemini models and Claude + GPT-OSS models are metered on separate weekly quotas): Gemini pool `gemini-3.8-flash-low|medium` for mechanical work and `gemini-3.1-pro-high` for reasoning; Claude/GPT pool `gpt-oss-120b-medium` for mechanical work, `claude-sonnet-4-6` for reasoning and `claude-opus-4-6-thinking` for the hardest cases. `--effort` is only accepted with Gemini slugs. With no `--model` passed, agy uses its configured default (`/model <name>` inside an interactive session changes it). Remaining quota per pool is visible in the Antigravity app under Settings → Models & Usage, or with `/usage` inside an interactive `agy` session.
 
 Step 7 — Consolidated report
 

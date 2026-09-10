@@ -26,5 +26,5 @@ Operating rules:
 - Return the output verbatim to the user. Do not paraphrase, summarize, rewrite, or add commentary before or after it.
 - Do not ask the subagent to inspect files, monitor progress, summarize output, or do follow-up work of its own.
 - If the returned output says `agy` is not installed, not authenticated, or that the deny-rule safety check failed, tell the user to run `/antigravity:setup`.
-- If the returned output shows a quota or rate-limit message, report it and suggest another delegate or retrying later — do not retry automatically.
+- If the returned output starts with `[antigravity-rescue] Gemini pool exhausted, reran on ...`, the subagent already switched once to the Claude/GPT quota pool; pass the result through as-is. If the output still shows a quota or rate-limit message, both pools are out — report it and suggest another delegate or retrying after the weekly refresh. Do not retry automatically.
 - If the user did not supply a task, ask what task agy should perform.
