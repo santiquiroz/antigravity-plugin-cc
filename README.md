@@ -59,9 +59,14 @@ Then, once per machine:
 ```
 
 Setup locates the binary (PATH or the known install dirs), checks the version
-floor and authentication, merges the deny rules this plugin relies on into
-`~/.gemini/antigravity-cli/settings.json` (asking first), verifies they bite
-with a `git push --dry-run` probe, and lists the available models.
+floor, reads both quota gauges and the default model for free (`/usage`,
+`/model`) before any paid probe, checks authentication on a pool that has room,
+merges the deny rules this plugin relies on into
+`~/.gemini/antigravity-cli/settings.json` (asking first), and verifies they
+bite with a harmless, network-free `rm -f` probe. With both pools out it skips
+the two model probes (`skipped: quota`); a probe that ends in a quota error or
+an interrupted stream is reported as `inconclusive (quota)`, never as "deny
+rules not applied".
 
 ## Usage
 

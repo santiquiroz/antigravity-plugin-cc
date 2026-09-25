@@ -61,10 +61,15 @@ Luego, una vez por máquina:
 ```
 
 Setup localiza el binario (PATH o los directorios conocidos de instalación),
-verifica la versión mínima y la autenticación, fusiona las reglas de denegación
-de las que depende este plugin en `~/.gemini/antigravity-cli/settings.json`
-(preguntando primero), comprueba que surtan efecto con una prueba de
-`git push --dry-run` y lista los modelos disponibles.
+verifica la versión mínima, lee gratis los dos indicadores de cuota y el modelo
+por defecto (`/usage`, `/model`) antes de cualquier prueba pagada, verifica la
+autenticación con un pool que tenga saldo, fusiona las reglas de denegación de
+las que depende este plugin en `~/.gemini/antigravity-cli/settings.json`
+(preguntando primero) y comprueba que surtan efecto con una prueba `rm -f`
+inocua y sin red. Con los dos pools agotados omite las dos pruebas de modelo
+(`skipped: quota`); una prueba que termina en error de cuota o en un stream
+interrumpido se informa como `inconclusive (quota)`, nunca como "reglas de
+denegación no aplicadas".
 
 ## Uso
 

@@ -51,6 +51,16 @@
   same Bash call as the forward" and for "exactly one foreground Bash call",
   which contradicted the decision between them and the rerun, and nine minutes
   of run plus two preflights could pass the 10-minute Bash ceiling.
+- `/antigravity:setup` reads `/usage` and `/model` before its two paid probes
+  and runs them on a pool above 2 % (`gemini-3.8-flash-low` or
+  `gpt-oss-120b-medium`), or skips them as `skipped: quota` when both pools are
+  out. The deny probe is now `rm -f ./.agy-deny-probe-nonexistent` with
+  `GIT_TERMINAL_PROMPT=0` and `GIT_SSH_COMMAND='ssh -o BatchMode=yes'` instead
+  of `git push --dry-run`, which needed the network if the rule did not bite.
+  A probe ending in `status: ERROR`, `The stream was interrupted`,
+  `[agy] print timeout` or a quota message is reported as
+  `inconclusive (quota)`; 0.3.0 reported it as "deny rules are not being
+  applied".
 
 ## 0.3.0 — 2026-09-10
 
