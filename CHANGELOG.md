@@ -45,6 +45,12 @@
   shell, and a planted hook runs on the orchestrator's next `git commit`.
 - `.gitattributes` keeps `*.sh` at LF so bash runs them with
   `core.autocrlf=true`.
+- The subagent prompt states one Bash call budget: preflight (120000 ms), run
+  (600000 ms) and, only after a quota signature, a second preflight plus one
+  rerun, each as its own foreground call. 0.3.0 asked for the preflight "in the
+  same Bash call as the forward" and for "exactly one foreground Bash call",
+  which contradicted the decision between them and the rerun, and nine minutes
+  of run plus two preflights could pass the 10-minute Bash ceiling.
 
 ## 0.3.0 — 2026-09-10
 

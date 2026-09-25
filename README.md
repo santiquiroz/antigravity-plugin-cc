@@ -205,7 +205,10 @@ slugs carry their effort in the name and agy rejects the flag for them.
 
 ## What the forwarder actually runs
 
-The subagent makes two Bash calls to `scripts/agy-forward.sh`:
+The subagent makes two separate foreground Bash calls to
+`scripts/agy-forward.sh`, and two more only after a quota signature. Each is
+its own call: a nine-minute run plus a preflight would not fit under the Bash
+tool's 10-minute ceiling, and the subagent never uses `run_in_background`.
 
 ```bash
 # 1. Free preflight (timeout 120000 ms): deny gate, both gauges, pool and model
@@ -215,6 +218,10 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/agy-forward.sh" preflight [--model <slug>] [
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/agy-forward.sh" run [--model <slug>] [--effort <level>] [--continue] <<'EOF_TASK'
 <your task, verbatim>
 EOF_TASK
+
+# 3. Only after a quota signature from the run: preflight again (timeout 120000 ms,
+#    --other-pool after exit 75) and, if it moved to the other pool, one rerun of
+#    step 2 on that model (timeout 600000 ms, without --continue)
 ```
 
 `run` appends the constraints paragraph and executes:

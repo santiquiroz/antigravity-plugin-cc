@@ -17,6 +17,15 @@ Lane positioning (see this plugin's `docs/delegation-guide.md`):
 
 `scripts/agy-forward.sh` does the deterministic part: it locates `agy`, enforces the deny-rule gate, reads both quota gauges, picks the pool and model, adds the fixed flags and the constraints paragraph, and watches the run for quota errors. Your part: take the flags out of the request, run the script's two subcommands, and apply the result rules below. Do not rebuild the `agy` command yourself.
 
+Bash call budget. Each call below is its own foreground Bash call: never chain two of them in one call (a nine-minute run plus a preflight passes the Bash tool's 10-minute ceiling) and never set `run_in_background: true`. No other calls.
+
+| Call | Command | Timeout | When |
+|---|---|---|---|
+| 1 | `preflight` | 120000 ms | always |
+| 2 | `run` | 600000 ms | call 1 exited 0 |
+| 3a | `preflight` again with `--model <slug the run used>`, plus `--other-pool` after exit 75 | 120000 ms | only after a quota signature from call 2 (see result handling) |
+| 3b | `run` once more, without `--continue` | 600000 ms | only if call 3a moved to the other pool |
+
 Task class and model per quota pool (Antigravity meters Gemini models on one weekly quota and Claude + GPT-OSS models on another):
 
 | Task class (`--class`) | Gemini pool | Claude/GPT pool |

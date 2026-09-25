@@ -217,7 +217,11 @@ llevan el esfuerzo en el nombre y agy rechaza el flag para ellos.
 
 ## Qué ejecuta realmente el reenviador
 
-El subagente hace dos llamadas Bash a `scripts/agy-forward.sh`:
+El subagente hace dos llamadas Bash separadas y en primer plano a
+`scripts/agy-forward.sh`, y dos más solo tras una firma de cuota. Cada una es
+una llamada propia: una ejecución de nueve minutos más un preflight no cabe
+bajo el techo de 10 minutos de la herramienta Bash, y el subagente nunca usa
+`run_in_background`.
 
 ```bash
 # 1. Preflight gratuito (timeout 120000 ms): compuerta deny, ambos indicadores, pool y modelo
@@ -227,6 +231,10 @@ bash "${CLAUDE_PLUGIN_ROOT}/scripts/agy-forward.sh" preflight [--model <slug>] [
 bash "${CLAUDE_PLUGIN_ROOT}/scripts/agy-forward.sh" run [--model <slug>] [--effort <level>] [--continue] <<'EOF_TASK'
 <your task, verbatim>
 EOF_TASK
+
+# 3. Solo tras una firma de cuota de la ejecución: preflight otra vez (timeout 120000 ms,
+#    --other-pool tras el código 75) y, si pasó al otro pool, un único reintento del
+#    paso 2 con ese modelo (timeout 600000 ms, sin --continue)
 ```
 
 `run` añade el párrafo de restricciones y ejecuta:
