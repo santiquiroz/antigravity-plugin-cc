@@ -28,6 +28,11 @@
   temporary `HOME`; the tests run in parallel.
 - The watchdog notices that `agy` exited within 0.25 s instead of waiting out
   its 2 s log check.
+- The watchdog tells the logs that existed before the launch, or that started
+  with another prompt length, apart with shell builtins and reads each new log
+  once, instead of piping every old `cli-*.log` through `grep` on every 2 s
+  check: with a few hundred old logs under a loaded Git Bash each check took
+  minutes and the early abort came too late.
 - The deny gate now requires each critical rule from `docs/permissions.json`
   (`git push`, `git reset`, `git clean`, `rm`, `rmdir`, `del`, `rd`,
   `Remove-Item`, `write_file(.git/)`) inside `permissions.deny`, instead of

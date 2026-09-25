@@ -20,6 +20,8 @@ readonly SLUG_PATTERN='(gemini|claude|gpt)-[A-Za-z0-9._-]+'
 readonly SETTINGS_FILE="$HOME/.gemini/antigravity-cli/settings.json"
 readonly CONSTRAINTS="Constraints: work directly in this workspace following the instructions above. Do not invoke other AI CLIs (claude, codex, copilot, gemini, ollama). Do not commit, push, switch branches or delete files. If a command is denied by policy, stop and report it — do not look for another way to run it. Leave your changes in the working tree and end with a short list of the files you touched."
 CHILD_PID=""
+KNOWN_LOGS=$'\n'
+OWN_LOG=""
 AGY=""
 GEMINI_PERCENT=""
 GEMINI_RESET=""
@@ -331,17 +333,22 @@ prompt_lengths() {
   return 1
 }
 
-list_run_logs() {
-  local log
-  for log in "$LOG_DIR"/cli-*.log; do
-    [ -e "$log" ] && printf '%s\n' "$log"
-  done
+is_known_log() {
+  case $KNOWN_LOGS in
+    *$'\n'"$1"$'\n'*) return 0 ;;
+  esac
+  return 1
 }
 
-is_new_log() {
-  local log=$1 existing=$2
-  [ -e "$log" ] || return 1
-  ! printf '%s\n' "$existing" | grep -Fxq -- "$log"
+remember_log() {
+  KNOWN_LOGS+="$1"$'\n'
+}
+
+remember_existing_logs() {
+  local log
+  for log in "$LOG_DIR"/cli-*.log; do
+    [ -e "$log" ] && remember_log "$log"
+  done
 }
 
 logged_prompt_length() {
@@ -352,16 +359,21 @@ logged_prompt_length() {
 
 is_prompt_length() {
   local n=$1 bytes=$2 chars=$3
-  [ -n "$n" ] && { [ "$n" = "$bytes" ] || [ "$n" = "$chars" ]; }
+  [ "$n" = "$bytes" ] || [ "$n" = "$chars" ]
 }
 
 # /usage and /model probes and runs from other sessions share the log dir; only a log created
-# after our launch whose prompt length matches ours belongs to this run.
+# after our launch whose prompt length matches ours belongs to this run. Logs ruled out are
+# remembered so each poll only reads logs it has not classified yet.
 find_own_log() {
-  local existing=$1 bytes=$2 chars=$3 log
+  local bytes=$1 chars=$2 log length
   for log in "$LOG_DIR"/cli-*.log; do
-    is_new_log "$log" "$existing" || continue
-    is_prompt_length "$(logged_prompt_length "$log")" "$bytes" "$chars" && { printf '%s' "$log"; return 0; }
+    [ -e "$log" ] || continue
+    is_known_log "$log" && continue
+    length=$(logged_prompt_length "$log")
+    [ -n "$length" ] || continue
+    is_prompt_length "$length" "$bytes" "$chars" && { OWN_LOG=$log; return 0; }
+    remember_log "$log"
   done
   return 1
 }
@@ -420,14 +432,14 @@ sleep_while_running() {
 }
 
 watch_child() {
-  local pid=$1 existing=$2 bytes=$3 chars=$4 model=$5 log="" threshold
+  local pid=$1 bytes=$2 chars=$3 model=$4 threshold
   threshold=$(abort_threshold)
   # A run that ends on its own keeps its own output and exit code, even with quota lines in its log.
   while sleep_while_running "$pid"; do
-    [ -n "$log" ] || log=$(find_own_log "$existing" "$bytes" "$chars") || log=""
-    quota_exhausted "$log" "$threshold" || continue
+    [ -n "$OWN_LOG" ] || find_own_log "$bytes" "$chars"
+    quota_exhausted "$OWN_LOG" "$threshold" || continue
     stop_child "$pid"
-    report_quota "$log" "$model"
+    report_quota "$OWN_LOG" "$model"
     return "$QUOTA_EXIT"
   done
   wait "$pid"
@@ -435,8 +447,8 @@ watch_child() {
 
 watch_command() {
   [ $# -ge 1 ] || usage_error "watch needs the agy binary"
-  local existing lengths model
-  existing=$(list_run_logs)
+  local lengths model
+  remember_existing_logs
   lengths=$(prompt_lengths -p "$@") || lengths=""
   model=$(arg_after --model "$@") || model="the default model"
   trap 'stop_child "$CHILD_PID"; exit 143' TERM INT HUP
@@ -444,7 +456,7 @@ watch_command() {
   CHILD_PID=$!
   [ -n "$lengths" ] || { wait "$CHILD_PID"; return; }
   # shellcheck disable=SC2086
-  watch_child "$CHILD_PID" "$existing" $lengths "$model"
+  watch_child "$CHILD_PID" $lengths "$model"
 }
 
 git_paths() {

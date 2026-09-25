@@ -8,6 +8,8 @@ FAKE_AGY="$ROOT/tests/fake-agy.sh"
 FIXTURES="$ROOT/tests/fixtures"
 GIT_BIN=$(dirname "$(command -v git)")
 FAILURES=0
+DEFAULT_ABORT_AFTER=3
+QUOTA_ERRORS_SLACK=5
 
 fail() {
   printf '    FAIL: %s\n' "$*"
@@ -123,6 +125,32 @@ write_foreign_logs_later() {
   write_foreign_log "$AGY_LOG_DIR/cli-29990101_000002.log" 778
 }
 
+write_old_logs() {
+  local count=$1 i name
+  for ((i = 1; i <= count; i++)); do
+    printf -v name 'cli-19990101_%06d.log' "$i"
+    printf 'Print mode: starting (promptLength=1, outputFormat=text)\n' >"$AGY_LOG_DIR/$name"
+  done
+}
+
+own_quota_errors() {
+  cat "$AGY_LOG_DIR"/cli-*_"$1".log | grep -c 'RESOURCE_EXHAUSTED'
+}
+
+# The fake agy writes one quota error per second of its own time, so their count measures how
+# late the abort came independently of wall time, which a loaded machine stretches arbitrarily.
+assert_aborted_early() {
+  local rc=$1 pid=$2 errors
+  assert_eq "$rc" 75 "exit code" || return 1
+  errors=$(own_quota_errors "$pid")
+  [ "$errors" -le $((DEFAULT_ABORT_AFTER + QUOTA_ERRORS_SLACK)) ] || fail "aborted after $errors quota errors" || return 1
+  ! kill -0 "$pid" 2>/dev/null || fail "fake agy $pid still alive"
+}
+
+watch_quota_run() {
+  bash "$FORWARD" watch "$FAKE_AGY" -p "$(prompt_of_length 500)" --model gemini-3.1-pro-high
+}
+
 test_quota_errors_abort_the_run_early() {
   local prompt out rc start elapsed pid
   prompt=$(prompt_of_length 500)
@@ -136,6 +164,15 @@ test_quota_errors_abort_the_run_early() {
   [ "$elapsed" -lt 15 ] || fail "took ${elapsed}s" || return 1
   assert_contains "$out" "[antigravity-rescue] quota: RESOURCE_EXHAUSTED on gemini-3.1-pro-high (Individual quota reached, Resets in 10h)" "quota line" || return 1
   ! kill -0 "$pid" 2>/dev/null || fail "fake agy $pid still alive"
+}
+
+test_quota_abort_stays_early_with_many_old_logs() {
+  local rc
+  export FAKE_AGY_MODE=quota FAKE_AGY_PIDFILE="$HOME/fake.pid"
+  write_old_logs 200
+  watch_quota_run >/dev/null
+  rc=$?
+  assert_aborted_early "$rc" "$(cat "$FAKE_AGY_PIDFILE")"
 }
 
 test_clean_run_passes_output_through() {
