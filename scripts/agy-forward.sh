@@ -5,7 +5,8 @@ set -u
 
 readonly QUOTA_EXIT=75
 readonly DEFAULT_ABORT_AFTER=3
-readonly WATCH_INTERVAL=2
+readonly POLL_STEP=0.25
+readonly POLLS_PER_WATCH=8
 readonly LOG_DIR=${AGY_LOG_DIR:-$HOME/.gemini/antigravity-cli/log}
 CHILD_PID=""
 
@@ -128,13 +129,19 @@ quota_exhausted() {
   [ "${count:-0}" -ge "$threshold" ]
 }
 
+sleep_while_running() {
+  local pid=$1 i
+  for ((i = 0; i < POLLS_PER_WATCH; i++)); do
+    sleep "$POLL_STEP"
+    kill -0 "$pid" 2>/dev/null || return 1
+  done
+}
+
 watch_child() {
   local pid=$1 existing=$2 bytes=$3 chars=$4 model=$5 log="" threshold
   threshold=$(abort_threshold)
-  while kill -0 "$pid" 2>/dev/null; do
-    sleep "$WATCH_INTERVAL"
-    # A run that ended on its own during the sleep keeps its own output and exit code.
-    kill -0 "$pid" 2>/dev/null || break
+  # A run that ends on its own keeps its own output and exit code, even with quota lines in its log.
+  while sleep_while_running "$pid"; do
     [ -n "$log" ] || log=$(find_own_log "$existing" "$bytes" "$chars") || log=""
     quota_exhausted "$log" "$threshold" || continue
     stop_child "$pid"
