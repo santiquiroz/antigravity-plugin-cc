@@ -288,8 +288,11 @@ Las expresiones regulares usan `\b` para no capturar `transform`, `perform`,
 `xargs rm`, `git rm` y `sh -c "rm …"` también sean capturados. El costo es un
 falso positivo cuando el nombre de un archivo es en sí mismo una palabra
 bloqueada (`cat rm.txt`); el delegado entonces reporta la denegación y se
-detiene, lo cual es la falla segura. El subagente **se niega a ejecutarse** si
-el archivo de configuración no tiene un bloque `permissions.deny`.
+detiene, lo cual es la falla segura. El subagente **se niega a ejecutarse**
+(salida 78, `missing deny rules: <nombres> — run /antigravity:setup`) salvo que
+la lista `permissions.deny` del archivo de configuración contenga cada regla
+crítica de arriba: `git push`, `git reset`, `git clean`, `rm`, `rmdir`, `del`,
+`rd`, `Remove-Item` y `write_file(.git/)`. Una lista vacía o parcial no pasa.
 
 Lo que esto **no** cubre — tenlo presente antes de delegar:
 

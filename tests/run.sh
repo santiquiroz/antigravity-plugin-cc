@@ -300,14 +300,82 @@ test_missing_agy_is_reported() {
   assert_contains "$out" "antigravity-rescue: agy not found" "message"
 }
 
-test_run_refuses_without_a_deny_block() {
+settings_path() {
+  printf '%s' "$HOME/.gemini/antigravity-cli/settings.json"
+}
+
+write_settings() {
+  printf '%s\n' "$1" >"$(settings_path)"
+}
+
+permissions_without() {
+  grep -v -F "$1" "$ROOT/docs/permissions.json" | sed 's/\(sudo.*"\),$/\1/'
+}
+
+assert_gate_refuses() {
+  local out=$1 rc=$2
+  assert_eq "$rc" 78 "exit code" || return 1
+  assert_contains "$out" "antigravity-rescue: missing deny rules: " "message" || return 1
+  assert_contains "$out" " — run /antigravity:setup" "setup hint" || return 1
+  assert_eq "$(call_count)" 0 "agy calls"
+}
+
+test_run_refuses_without_a_settings_file() {
   local out rc
-  rm "$HOME/.gemini/antigravity-cli/settings.json"
+  rm "$(settings_path)"
   out=$(printf 'fix the build' | bash "$FORWARD" run)
   rc=$?
-  assert_eq "$rc" 78 "exit code" || return 1
-  assert_contains "$out" "no permissions.deny block" "message" || return 1
-  assert_eq "$(call_count)" 0 "agy calls"
+  assert_gate_refuses "$out" "$rc" || return 1
+  assert_contains "$out" "git push, git reset, git clean, rm, rmdir, del, rd, Remove-Item, write_file(.git/)" "all rules listed"
+}
+
+test_run_refuses_an_empty_deny_list() {
+  local out rc
+  write_settings '{ "permissions": { "deny": [] } }'
+  out=$(printf 'fix the build' | bash "$FORWARD" run)
+  rc=$?
+  assert_gate_refuses "$out" "$rc" || return 1
+  assert_contains "$out" "missing deny rules: git push" "git push listed"
+}
+
+test_preflight_refuses_an_empty_deny_list() {
+  local out rc
+  write_settings '{ "permissions": { "deny": [] } }'
+  out=$(bash "$FORWARD" preflight)
+  rc=$?
+  assert_gate_refuses "$out" "$rc"
+}
+
+test_run_names_the_single_missing_deny_rule() {
+  local out rc
+  permissions_without 'write_file(.git/)' >"$(settings_path)"
+  out=$(printf 'fix the build' | bash "$FORWARD" run)
+  rc=$?
+  assert_gate_refuses "$out" "$rc" || return 1
+  assert_contains "$out" "missing deny rules: write_file(.git/) — run" "only write_file listed"
+}
+
+test_run_ignores_critical_rules_outside_the_deny_list() {
+  local out rc allow
+  allow=$(sed -n '/"deny"/,/]/p' "$ROOT/docs/permissions.json" | sed '1s/"deny"/"allow"/')
+  write_settings "{ \"permissions\": { $allow, \"deny\": [ $(grep -F 'sudo' "$ROOT/docs/permissions.json" | tr -d ' ,') ] } }"
+  out=$(printf 'fix the build' | bash "$FORWARD" run)
+  rc=$?
+  assert_gate_refuses "$out" "$rc" || return 1
+  assert_contains "$out" "missing deny rules: git push" "git push listed"
+}
+
+test_run_accepts_merged_rules_in_a_compact_crlf_settings_file() {
+  local out rc
+  { printf '{"theme":"dark","permissions":{"allow":[],"deny":['
+    grep -o '"[a-z_]*(.*)"' "$ROOT/docs/permissions.json" | paste -s -d , -
+    printf ']}}\r\n'
+  } | sed 's/,/,\r\n/g' >"$(settings_path)"
+  out=$(printf 'fix the build' | bash "$FORWARD" run)
+  rc=$?
+  assert_eq "$rc" 0 "exit code" || return 1
+  assert_eq "$out" "done" "stdout" || return 1
+  assert_eq "$(call_count)" 1 "agy calls"
 }
 
 test_run_forwards_the_fixed_flags() {

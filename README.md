@@ -268,8 +268,11 @@ The regexes use `\b` so `transform`, `perform`, `delete` and friends are not
 caught, and they are deliberately **unanchored** so `xargs rm`, `git rm` and
 `sh -c "rm …"` are caught too. The cost is a false positive when a file name
 is itself a blocked word (`cat rm.txt`); the delegate then reports the denial
-and stops, which is the safe failure. The subagent **refuses to run** if the
-settings file has no `permissions.deny` block.
+and stops, which is the safe failure. The subagent **refuses to run** (exit 78,
+`missing deny rules: <names> — run /antigravity:setup`) unless the settings
+file's `permissions.deny` list holds every critical rule above: `git push`,
+`git reset`, `git clean`, `rm`, `rmdir`, `del`, `rd`, `Remove-Item` and
+`write_file(.git/)`. An empty or partial list does not pass.
 
 What this does **not** cover — know it before delegating:
 

@@ -14,7 +14,7 @@
   once on the other pool on that line.
 - The forwarding logic moved from the subagent prompt into
   `scripts/agy-forward.sh`, so it no longer depends on an LLM re-reading prose
-  on every call. `preflight` locates `agy`, applies the deny-block gate, reads
+  on every call. `preflight` locates `agy`, applies the deny-rule gate, reads
   `/usage` and `/model` (with `MSYS_NO_PATHCONV=1`, without
   `--disable-slash-commands`) and prints both gauges plus the chosen `model:`
   and `effort:` (pool switch at 2 % or less, both pools out → exit 69,
@@ -28,6 +28,13 @@
   temporary `HOME`; the tests run in parallel.
 - The watchdog notices that `agy` exited within 0.25 s instead of waiting out
   its 2 s log check.
+- The deny gate now requires each critical rule from `docs/permissions.json`
+  (`git push`, `git reset`, `git clean`, `rm`, `rmdir`, `del`, `rd`,
+  `Remove-Item`, `write_file(.git/)`) inside `permissions.deny`, instead of
+  the bare word `"deny"` anywhere in the file: `"deny": []`, a partial list or
+  the rules under another key used to pass and still run with
+  `--dangerously-skip-permissions`. It exits 78 with
+  `antigravity-rescue: missing deny rules: <names> — run /antigravity:setup`.
 - `.gitattributes` keeps `*.sh` at LF so bash runs them with
   `core.autocrlf=true`.
 

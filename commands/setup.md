@@ -39,7 +39,7 @@ Headless `agy` cannot prompt, so the subagent runs it with `--dangerously-skip-p
 
 - Every rule present → OK.
 - Missing or partial → `AskUserQuestion` once: `Merge the recommended deny rules (Recommended)`, `Show me the rules first`, `Skip`. On merge: add only the missing entries to `permissions.deny`, keep every other key and existing rule untouched, create the file if absent, and write valid JSON (backslashes in the regex rules must stay escaped as `\\b` and `\\s` in the file). Tell the user these rules are global — they also block those commands in interactive `agy` sessions, which is intended: they only cover destructive or shared-state commands (`git push`, `git reset`, `git clean`, `rm`/`rmdir`/`del`/`rd`/`Remove-Item`, `sudo`, writes under `.git/`).
-- Skipped → say plainly that the subagent will refuse to run until a `permissions.deny` block exists.
+- Skipped → say plainly that the subagent will refuse to run until `permissions.deny` holds the critical rules (`git push`, `git reset`, `git clean`, `rm`, `rmdir`, `del`, `rd`, `Remove-Item`, `write_file(.git/)`).
 
 Step 5 — Verify the deny rules bite (only if Step 4 ended OK)
 

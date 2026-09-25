@@ -90,10 +90,46 @@ require_agy() {
   return "$NOT_FOUND_EXIT"
 }
 
+# Name|exact JSON text of each rule from docs/permissions.json that the gate requires.
+readonly CRITICAL_DENY_RULES=(
+  'git push|command(regex:.*\\bgit\\s+push\\b.*)'
+  'git reset|command(regex:.*\\bgit\\s+reset\\b.*)'
+  'git clean|command(regex:.*\\bgit\\s+clean\\b.*)'
+  'rm|command(regex:.*\\brm\\b.*)'
+  'rmdir|command(regex:.*\\brmdir\\b.*)'
+  'del|command(regex:.*\\bdel\\b.*)'
+  'rd|command(regex:.*\\brd\\b.*)'
+  'Remove-Item|command(regex:.*\\bRemove-Item\\b.*)'
+  'write_file(.git/)|write_file(.git/)'
+)
+readonly DENY_LIST_PATTERN='"deny"[[:space:]]*:[[:space:]]*\[[^]]*\]'
+
+# Builtins only: forking grep per rule costs seconds on a loaded Windows machine.
+deny_lists() {
+  local text="" lists=""
+  [ -r "$SETTINGS_FILE" ] && IFS= read -r -d '' text <"$SETTINGS_FILE"
+  text=${text//[$'\r\n']/}
+  while [[ $text =~ $DENY_LIST_PATTERN ]]; do
+    lists+=${BASH_REMATCH[0]}
+    text=${text#*"${BASH_REMATCH[0]}"}
+  done
+  printf '%s' "$lists"
+}
+
+missing_deny_rules() {
+  local lists=$1 entry missing=""
+  for entry in "${CRITICAL_DENY_RULES[@]}"; do
+    [[ $lists == *"\"${entry#*|}\""* ]] || missing="${missing:+$missing, }${entry%%|*}"
+  done
+  printf '%s' "$missing"
+}
+
 # Headless agy needs --dangerously-skip-permissions; user deny rules are what still wins under it.
-require_deny_block() {
-  grep -q '"deny"' "$SETTINGS_FILE" 2>/dev/null && return 0
-  echo "antigravity-rescue: no permissions.deny block in ~/.gemini/antigravity-cli/settings.json — refusing to run with --dangerously-skip-permissions. Run /antigravity:setup first."
+require_deny_rules() {
+  local missing
+  missing=$(missing_deny_rules "$(deny_lists)")
+  [ -z "$missing" ] && return 0
+  echo "antigravity-rescue: missing deny rules: $missing — run /antigravity:setup"
   return "$UNSAFE_EXIT"
 }
 
@@ -248,7 +284,7 @@ choose_other_pool() {
 preflight() {
   local model
   require_agy || return
-  require_deny_block || return
+  require_deny_rules || return
   read_usage || return
   model=${OPT_MODEL:-$(default_model)}
   print_gauges
@@ -416,7 +452,7 @@ run_task() {
   task=$(cat)
   [ -n "${task//[[:space:]]/}" ] || usage_error "no task on stdin"
   require_agy || return
-  require_deny_block || return
+  require_deny_rules || return
   prompt=$(printf '%s\n\n%s' "$task" "$CONSTRAINTS")
   args=(-p "$prompt" --add-dir "$PWD" --dangerously-skip-permissions --disable-slash-commands --output-format text --print-timeout 9m)
   [ -n "$OPT_MODEL" ] && args+=(--model "$OPT_MODEL")
