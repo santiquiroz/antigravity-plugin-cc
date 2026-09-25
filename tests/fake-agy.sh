@@ -79,6 +79,12 @@ write_progress() {
   done
 }
 
+stash_a_change() {
+  printf 'x\n' >delegate.txt
+  git add delegate.txt
+  git stash -q
+}
+
 main() {
   local prompt log
   prompt=$(prompt_of "$@")
@@ -93,6 +99,11 @@ main() {
     quota-burst) for _ in 1 2 3; do quota_line >>"$log"; done; echo "done" ;;
     slow) write_progress "$log" 4; echo "done" ;;
     fail) echo "error: boom" >&2; exit 3 ;;
+    git-commit) git commit -q --allow-empty -m x; echo "done" ;;
+    git-hook) printf '#!/bin/sh\n' >"$(git rev-parse --git-path hooks)/pre-commit"; echo "done" ;;
+    git-config) git config alias.x '!echo'; echo "done" ;;
+    git-switch) git switch -q -c delegate; echo "done" ;;
+    git-stash) stash_a_change; echo "done" ;;
     *) echo "done" ;;
   esac
 }

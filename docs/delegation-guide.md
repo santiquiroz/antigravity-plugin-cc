@@ -101,6 +101,13 @@ so the forwarder passes that flag on every invocation.
 - Pattern denies are best effort, like any CLI allow/deny list. Always review
   `git diff` before committing; the delegate leaves changes in the working
   tree and is told not to commit — prompt text, not a deny rule; check `git log` and `git stash list` too.
+- After each run in a git repository the forwarder compares `HEAD`, the
+  branch, the stash count, the git config and the hooks directory with a
+  snapshot taken before it, and appends
+  `[antigravity-rescue] WARNING: <what changed> — review before your next git command`
+  for each change. It is read-only and reverts nothing. Act on it before your
+  next git command: a hook or alias the delegate planted runs on your next
+  `git commit`.
 
 ## Quota fallback chain
 

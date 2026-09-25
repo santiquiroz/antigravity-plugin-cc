@@ -6,6 +6,7 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 FORWARD="$ROOT/scripts/agy-forward.sh"
 FAKE_AGY="$ROOT/tests/fake-agy.sh"
 FIXTURES="$ROOT/tests/fixtures"
+GIT_BIN=$(dirname "$(command -v git)")
 FAILURES=0
 
 fail() {
@@ -41,12 +42,22 @@ new_sandbox() {
   LOCALAPPDATA="$HOME/AppData/Local"
   FAKE_AGY_CALLS="$HOME/calls"
   FAKE_AGY_USAGE="$FIXTURES/usage-both-ok.txt"
-  PATH="$HOME/bin:/usr/bin:/bin"
+  PATH="$HOME/bin:/usr/bin:/bin:$GIT_BIN"
   export HOME AGY_LOG_DIR LOCALAPPDATA FAKE_AGY_CALLS FAKE_AGY_USAGE PATH
-  unset MSYS_NO_PATHCONV GIT_TERMINAL_PROMPT GIT_SSH_COMMAND AGY_QUOTA_ABORT_AFTER
+  unset MSYS_NO_PATHCONV GIT_TERMINAL_PROMPT GIT_SSH_COMMAND AGY_QUOTA_ABORT_AFTER XDG_CONFIG_HOME
+  isolate_git
   mkdir -p "$AGY_LOG_DIR" "$HOME/bin"
   install_fake_agy
   cp "$ROOT/docs/permissions.json" "$HOME/.gemini/antigravity-cli/settings.json"
+  cd "$HOME" || return 1
+}
+
+isolate_git() {
+  GIT_CEILING_DIRECTORIES=$(dirname "$HOME")
+  GIT_CONFIG_NOSYSTEM=1
+  GIT_AUTHOR_NAME=tester GIT_AUTHOR_EMAIL=tester@example.invalid
+  GIT_COMMITTER_NAME=tester GIT_COMMITTER_EMAIL=tester@example.invalid
+  export GIT_CEILING_DIRECTORIES GIT_CONFIG_NOSYSTEM GIT_AUTHOR_NAME GIT_AUTHOR_EMAIL GIT_COMMITTER_NAME GIT_COMMITTER_EMAIL
 }
 
 use_usage() {
@@ -441,6 +452,83 @@ test_run_aborts_on_quota_errors_in_its_own_log() {
   rc=$?
   assert_eq "$rc" 75 "exit code" || return 1
   assert_contains "$out" "[antigravity-rescue] quota: RESOURCE_EXHAUSTED on claude-sonnet-4-6" "quota line"
+}
+
+new_repo() {
+  git init -q "$HOME/repo" && git -C "$HOME/repo" commit -q --allow-empty -m initial
+}
+
+run_in_repo() {
+  export FAKE_AGY_MODE=$1
+  (cd "${2:-$HOME/repo}" && printf 'fix the build' | bash "$FORWARD" run)
+}
+
+assert_git_warning() {
+  local out=$1 what=$2
+  assert_contains "$out" "[antigravity-rescue] WARNING: " "warning prefix" || return 1
+  assert_contains "$out" "$what" "what changed" || return 1
+  assert_contains "$out" " — review before your next git command" "warning suffix"
+}
+
+test_run_warns_when_the_delegate_commits() {
+  local out rc
+  new_repo
+  out=$(run_in_repo git-commit)
+  rc=$?
+  assert_eq "$rc" 0 "exit code" || return 1
+  assert_git_warning "$out" "HEAD" || return 1
+  assert_eq "$(git -C "$HOME/repo" rev-list --count HEAD)" 2 "commits left in place"
+}
+
+test_run_warns_when_the_delegate_writes_a_hook() {
+  local out
+  new_repo
+  out=$(run_in_repo git-hook)
+  assert_git_warning "$out" "hooks" || return 1
+  assert_not_contains "$out" "HEAD" "HEAD warning" || return 1
+  [ -f "$HOME/repo/.git/hooks/pre-commit" ] || fail "hook removed"
+}
+
+test_run_warns_when_the_delegate_changes_git_config() {
+  local out
+  new_repo
+  out=$(run_in_repo git-config)
+  assert_git_warning "$out" "config" || return 1
+  assert_eq "$(git -C "$HOME/repo" config alias.x)" '!echo' "alias left in place"
+}
+
+test_run_warns_when_the_delegate_switches_branch() {
+  local out
+  new_repo
+  out=$(run_in_repo git-switch)
+  assert_git_warning "$out" "branch" || return 1
+  assert_eq "$(git -C "$HOME/repo" symbolic-ref --short HEAD)" "delegate" "branch left in place"
+}
+
+test_run_warns_when_the_delegate_stashes() {
+  local out
+  new_repo
+  out=$(run_in_repo git-stash)
+  assert_git_warning "$out" "stash" || return 1
+  assert_eq "$(git -C "$HOME/repo" stash list | wc -l | tr -d ' ')" 1 "stash left in place"
+}
+
+test_run_warns_about_a_hook_written_from_a_linked_worktree() {
+  local out
+  new_repo
+  git -C "$HOME/repo" worktree add -q "$HOME/linked" 2>/dev/null
+  out=$(run_in_repo git-hook "$HOME/linked")
+  assert_git_warning "$out" "hooks" || return 1
+  [ -f "$HOME/repo/.git/hooks/pre-commit" ] || fail "hook not in the common hooks dir"
+}
+
+test_run_that_leaves_git_alone_prints_no_warning() {
+  local out rc
+  new_repo
+  out=$(run_in_repo done)
+  rc=$?
+  assert_eq "$rc" 0 "exit code" || return 1
+  assert_eq "$out" "done" "stdout"
 }
 
 test_unknown_subcommand_is_a_usage_error() {

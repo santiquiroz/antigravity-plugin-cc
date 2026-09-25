@@ -237,8 +237,18 @@ quota watchdog finds this run's log in `~/.gemini/antigravity-cli/log/` (the
 `cli-*.log` created after the launch whose `promptLength` matches the task, so
 `/usage` probes and other sessions' runs are ignored) and aborts only its own
 `agy` process. After a quota abort, `preflight --other-pool` checks only the
-other pool before the single rerun. `bash tests/run.sh` exercises all of this
-against a fake `agy` and a temporary `HOME`, without network.
+other pool before the single rerun.
+
+When the working directory is a git repository, `run` also takes a read-only
+snapshot of its git metadata before and after `agy`: `HEAD`, the current
+branch, the number of stash entries, `.git/config` (plus `config.worktree`)
+and the hooks directory (`git rev-parse --git-path hooks`, so linked worktrees
+and `core.hooksPath` are covered). For each one that changed it appends
+`[antigravity-rescue] WARNING: <what changed> — review before your next git command`
+to the output. It never reverts anything. A hook or alias the delegate wrote
+runs on your next `git commit`, so read the warning before you run one.
+`bash tests/run.sh` exercises all of this against a fake `agy` and a
+temporary `HOME`, without network.
 
 ## Safety model
 
@@ -294,8 +304,13 @@ What this does **not** cover — know it before delegating:
   only `push` and the `rm` family are actually denied: `git commit`,
   `git checkout`, `git switch`, `git restore`, `git stash` and `git rebase` are
   not, so a delegate that ignores the prompt can commit, or discard your
-  uncommitted changes. Commit or stash your own work before delegating, and
-  review `git log` and `git stash list` as well as `git diff`. To enforce it,
+  uncommitted changes. Shell commands can also write `.git/hooks/*` or run
+  `git config` (`core.hooksPath`, an alias): `write_file(.git/)` only covers
+  agy's file tool, and a planted hook runs on your next `git commit`. `run`
+  warns when `HEAD`, the branch, the stash list, the git config or the hooks
+  changed during the run, but it does not undo anything. Commit or stash your
+  own work before delegating, and review `git log` and `git stash list` as
+  well as `git diff`. To enforce it,
   add `command(regex:.*\bgit\s+(commit|checkout|switch|restore|stash|rebase)\b.*)`
   to `permissions.deny` — global, so it also blocks those commands in your
   interactive `agy` sessions.
@@ -327,7 +342,7 @@ What this does **not** cover — know it before delegating:
 | `agents/antigravity-rescue.md` | Thin forwarder subagent — runs the script's preflight and run, output returned verbatim |
 | `/antigravity:rescue` | Delegate a task explicitly (`--background`, `--wait`, `--model`, `--effort`) |
 | `/antigravity:setup` | Locate binary, version floor, auth probe, merge + verify deny rules, list models |
-| `scripts/agy-forward.sh` | `preflight`: locates `agy`, deny gate, both gauges, pool and model. `run`: fixed flags, constraints paragraph, `agy`, aborted early when its own log shows repeated `RESOURCE_EXHAUSTED` |
+| `scripts/agy-forward.sh` | `preflight`: locates `agy`, deny gate, both gauges, pool and model. `run`: fixed flags, constraints paragraph, `agy`, aborted early when its own log shows repeated `RESOURCE_EXHAUSTED`, then a warning for each change to `HEAD`, branch, stash, git config or hooks |
 | `tests/run.sh` | Hermetic tests for the script (fake `agy` in `tests/fake-agy.sh`, `/usage` fixtures in `tests/fixtures/`, temporary `HOME`) |
 | `docs/permissions.json` | The deny rules setup merges |
 | `docs/claude-md-snippet.md` | Ready-to-paste CLAUDE.md block |

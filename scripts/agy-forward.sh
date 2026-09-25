@@ -447,8 +447,75 @@ watch_command() {
   watch_child "$CHILD_PID" "$existing" $lengths "$model"
 }
 
+git_paths() {
+  git rev-parse --path-format=absolute --git-dir --git-common-dir --git-path hooks 2>/dev/null
+}
+
+files_fingerprint() {
+  local files=("$@") existing=() file
+  for file in "${files[@]}"; do
+    [ -f "$file" ] && existing+=("$file")
+  done
+  [ ${#existing[@]} -gt 0 ] || { printf 'none'; return 0; }
+  cksum "${existing[@]}" | cksum
+}
+
+hooks_fingerprint() {
+  local hooks=("$1"/*)
+  files_fingerprint "${hooks[@]}"
+}
+
+stash_count() {
+  git rev-list --walk-reflogs --count refs/stash -- 2>/dev/null || printf '0'
+}
+
+# Read-only: no command here touches the index, runs hooks or starts a pager.
+git_state() {
+  local git_dir common hooks
+  { IFS= read -r git_dir && IFS= read -r common && IFS= read -r hooks; } < <(git_paths) || return 1
+  printf 'HEAD\t%s\n' "$(git rev-parse -q --verify HEAD || printf 'none')"
+  printf 'branch\t%s\n' "$(git symbolic-ref -q --short HEAD || printf 'detached')"
+  printf 'stash\t%s\n' "$(stash_count)"
+  printf 'config\t%s\n' "$(files_fingerprint "$common/config" "$git_dir/config.worktree")"
+  printf 'hooks\t%s\n' "$(hooks_fingerprint "$hooks")"
+}
+
+state_field() {
+  local key=$1 line
+  while IFS= read -r line; do
+    [ "${line%%$'\t'*}" = "$key" ] && { printf '%s' "${line#*$'\t'}"; return 0; }
+  done <<<"$2"
+  return 1
+}
+
+describe_git_change() {
+  local key=$1 before=$2 after=$3
+  case $key in
+    HEAD) printf 'HEAD moved from %s to %s' "${before:0:12}" "${after:0:12}" ;;
+    branch) printf 'branch changed from %s to %s' "$before" "$after" ;;
+    stash) printf 'stash list changed from %s to %s entries' "$before" "$after" ;;
+    config) printf 'git config changed (.git/config)' ;;
+    hooks) printf 'git hooks changed (.git/hooks or core.hooksPath)' ;;
+  esac
+}
+
+git_warning() {
+  printf '[antigravity-rescue] WARNING: %s — review before your next git command\n' "$1"
+}
+
+# Reports what the delegate changed in git metadata; never reverts it.
+warn_git_changes() {
+  local before=$1 after key old new
+  [ -n "$before" ] || return 0
+  after=$(git_state) || { git_warning "the git repository is no longer readable"; return 0; }
+  while IFS=$'\t' read -r key old; do
+    new=$(state_field "$key" "$after")
+    [ "$old" = "$new" ] || git_warning "$(describe_git_change "$key" "$old" "$new")"
+  done <<<"$before"
+}
+
 run_task() {
-  local task prompt args
+  local task prompt args before rc
   task=$(cat)
   [ -n "${task//[[:space:]]/}" ] || usage_error "no task on stdin"
   require_agy || return
@@ -459,7 +526,11 @@ run_task() {
   [ -n "$OPT_EFFORT" ] && is_gemini_slug "$OPT_MODEL" && args+=(--effort "$OPT_EFFORT")
   [ "$OPT_CONTINUE" = 1 ] && args+=(--continue)
   export GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="ssh -o BatchMode=yes"
+  before=$(git_state) || before=""
   watch_command "$AGY" "${args[@]}"
+  rc=$?
+  warn_git_changes "$before"
+  return "$rc"
 }
 
 main() {

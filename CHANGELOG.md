@@ -35,6 +35,14 @@
   the rules under another key used to pass and still run with
   `--dangerously-skip-permissions`. It exits 78 with
   `antigravity-rescue: missing deny rules: <names> — run /antigravity:setup`.
+- Post-run git guard: in a git repository `run` snapshots `HEAD`, the branch,
+  the stash count, `.git/config` (plus `config.worktree`) and the hooks
+  directory (`git rev-parse --git-path hooks`, so linked worktrees and
+  `core.hooksPath` count) before and after `agy`, and appends
+  `[antigravity-rescue] WARNING: <what changed> — review before your next git command`
+  for each change. Read-only; nothing is reverted. The deny list does not stop
+  `git commit`/`switch`/`stash`, `git config` or a hook written from the
+  shell, and a planted hook runs on the orchestrator's next `git commit`.
 - `.gitattributes` keeps `*.sh` at LF so bash runs them with
   `core.autocrlf=true`.
 

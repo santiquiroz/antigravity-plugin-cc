@@ -251,8 +251,19 @@ creado después del lanzamiento cuyo `promptLength` coincide con la tarea, de
 modo que ignora las consultas de `/usage` y las ejecuciones de otras sesiones)
 y solo aborta su propio proceso `agy`. Tras un aborto por cuota,
 `preflight --other-pool` comprueba solo el otro pool antes del único
-reintento. `bash tests/run.sh` prueba todo esto contra un `agy` falso y un
-`HOME` temporal, sin red.
+reintento.
+
+Si el directorio de trabajo es un repositorio git, `run` también toma una
+instantánea de solo lectura de sus metadatos git antes y después de `agy`:
+`HEAD`, la rama actual, el número de entradas del stash, `.git/config` (más
+`config.worktree`) y el directorio de hooks (`git rev-parse --git-path hooks`,
+así que cubre worktrees enlazados y `core.hooksPath`). Por cada uno que haya
+cambiado añade a la salida
+`[antigravity-rescue] WARNING: <what changed> — review before your next git command`.
+Nunca revierte nada. Un hook o un alias que haya escrito el delegado se ejecuta
+en tu siguiente `git commit`, así que lee el aviso antes de lanzar uno.
+`bash tests/run.sh` prueba todo esto contra un `agy` falso y un `HOME`
+temporal, sin red.
 
 ## Modelo de seguridad
 
@@ -317,8 +328,14 @@ Lo que esto **no** cubre — tenlo presente antes de delegar:
   solo `push` y la familia `rm` están realmente denegados: `git commit`,
   `git checkout`, `git switch`, `git restore`, `git stash` y `git rebase` no lo
   están, así que un delegado que ignore el prompt puede hacer commit o descartar
-  tus cambios sin commit. Haz commit o stash de tu propio trabajo antes de
-  delegar y revisa `git log` y `git stash list`, además de `git diff`. Para
+  tus cambios sin commit. Los comandos de shell también pueden escribir
+  `.git/hooks/*` o ejecutar `git config` (`core.hooksPath`, un alias):
+  `write_file(.git/)` solo cubre la herramienta de archivos de agy, y un hook
+  plantado se ejecuta en tu siguiente `git commit`. `run` avisa cuando `HEAD`,
+  la rama, el stash, la configuración git o los hooks cambiaron durante la
+  ejecución, pero no deshace nada. Haz commit o stash de tu propio trabajo
+  antes de delegar y revisa `git log` y `git stash list`, además de
+  `git diff`. Para
   imponerlo, añade
   `command(regex:.*\bgit\s+(commit|checkout|switch|restore|stash|rebase)\b.*)`
   a `permissions.deny`: es global, por lo que también bloquea esos comandos en
@@ -352,7 +369,7 @@ Lo que esto **no** cubre — tenlo presente antes de delegar:
 | `agents/antigravity-rescue.md` | Subagente reenviador ligero: ejecuta el preflight y la ejecución del script, salida devuelta textualmente |
 | `/antigravity:rescue` | Delega una tarea explícitamente (`--background`, `--wait`, `--model`, `--effort`) |
 | `/antigravity:setup` | Localiza el binario, versión mínima, prueba de autenticación, fusiona y verifica reglas de denegación, lista modelos |
-| `scripts/agy-forward.sh` | `preflight`: localiza `agy`, compuerta deny, ambos indicadores, pool y modelo. `run`: flags fijos, párrafo de restricciones y `agy`, abortado pronto cuando su propio log muestra `RESOURCE_EXHAUSTED` repetido |
+| `scripts/agy-forward.sh` | `preflight`: localiza `agy`, compuerta deny, ambos indicadores, pool y modelo. `run`: flags fijos, párrafo de restricciones y `agy`, abortado pronto cuando su propio log muestra `RESOURCE_EXHAUSTED` repetido, y después un aviso por cada cambio en `HEAD`, rama, stash, configuración git o hooks |
 | `tests/run.sh` | Pruebas herméticas del script (`agy` falso en `tests/fake-agy.sh`, fixtures de `/usage` en `tests/fixtures/`, `HOME` temporal) |
 | `docs/permissions.json` | Las reglas de denegación que fusiona setup |
 | `docs/claude-md-snippet.md` | Bloque listo para pegar en CLAUDE.md |
