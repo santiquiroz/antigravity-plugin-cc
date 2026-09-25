@@ -1,0 +1,3 @@
+/fix the "build" in `src` for $(whoami) and $HOME
+EOF_TASK
+it's done when 'npm test' passes \n

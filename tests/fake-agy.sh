@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Stand-in for agy: writes a per-run log the way agy does and behaves per FAKE_AGY_MODE.
+# Stand-in for agy: records each call, answers /usage and /model, writes a per-run log the way agy does and behaves per FAKE_AGY_MODE.
 set -u
 
 prompt_of() {
@@ -9,15 +9,54 @@ prompt_of() {
   done
 }
 
+has_arg() {
+  local wanted=$1
+  shift
+  local arg
+  for arg in "$@"; do
+    [ "$arg" = "$wanted" ] && return 0
+  done
+  return 1
+}
+
 byte_length() {
   local LC_ALL=C
   printf '%s' "${#1}"
 }
 
+record_call() {
+  local dir=${FAKE_AGY_CALLS:-} n=1
+  [ -n "$dir" ] || return 0
+  [ -d "$dir" ] || mkdir -p "$dir"
+  while [ -e "$dir/$n.args" ]; do
+    n=$((n + 1))
+  done
+  printf '%s\0' "$@" >"$dir/$n.args"
+  printf 'MSYS_NO_PATHCONV=%s\nGIT_TERMINAL_PROMPT=%s\nGIT_SSH_COMMAND=%s\n' \
+    "${MSYS_NO_PATHCONV:-}" "${GIT_TERMINAL_PROMPT:-}" "${GIT_SSH_COMMAND:-}" >"$dir/$n.env"
+}
+
 open_run_log() {
-  local dir=${AGY_LOG_DIR:-$HOME/.gemini/antigravity-cli/log}
-  mkdir -p "$dir"
-  printf '%s/cli-%s_%s.log' "$dir" "$(date +%Y%m%d_%H%M%S)" "$$"
+  local dir=${AGY_LOG_DIR:-$HOME/.gemini/antigravity-cli/log} stamp
+  [ -d "$dir" ] || mkdir -p "$dir"
+  printf -v stamp '%(%Y%m%d_%H%M%S)T' -1
+  printf '%s/cli-%s_%s.log' "$dir" "$stamp" "$$"
+}
+
+answers_slash_command() {
+  local prompt=$1
+  shift
+  case $prompt in
+    /usage | /model) ! has_arg --disable-slash-commands "$@" ;;
+    *) return 1 ;;
+  esac
+}
+
+answer_slash_command() {
+  case $1 in
+    /usage) cat "${FAKE_AGY_USAGE:-/dev/null}"; exit "${FAKE_AGY_USAGE_EXIT:-0}" ;;
+    /model) printf '%s\n' "${FAKE_AGY_DEFAULT_MODEL:-gemini-3.1-pro-high}" ;;
+  esac
 }
 
 quota_line() {
@@ -43,9 +82,11 @@ write_progress() {
 main() {
   local prompt log
   prompt=$(prompt_of "$@")
-  [ -n "${FAKE_AGY_PIDFILE:-}" ] && printf '%s' "$$" >"$FAKE_AGY_PIDFILE"
+  record_call "$@"
   log=$(open_run_log)
   printf 'I0917 13:10:00 main.go:40] Print mode: starting (promptLength=%s, outputFormat=text)\n' "$(byte_length "$prompt")" >>"$log"
+  answers_slash_command "$prompt" "$@" && { answer_slash_command "$prompt"; return; }
+  [ -n "${FAKE_AGY_PIDFILE:-}" ] && printf '%s' "$$" >"$FAKE_AGY_PIDFILE"
   case ${FAKE_AGY_MODE:-done} in
     quota) write_quota_errors "$log" 120; echo "partial" ;;
     quota-brief) write_quota_errors "$log" 3; echo "done" ;;

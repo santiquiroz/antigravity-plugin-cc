@@ -205,29 +205,40 @@ slugs carry their effort in the name and agy rejects the flag for them.
 
 ## What the forwarder actually runs
 
-```bash
-TASK=$(cat <<'EOF_TASK'
-<your task, verbatim>
+The subagent makes two Bash calls to `scripts/agy-forward.sh`:
 
-Constraints: work directly in this workspace following the instructions above. Do not invoke other AI CLIs (claude, codex, copilot, gemini, ollama). Do not commit, push, switch branches or delete files. If a command is denied by policy, stop and report it — do not look for another way to run it. Leave your changes in the working tree and end with a short list of the files you touched.
+```bash
+# 1. Free preflight (timeout 120000 ms): deny gate, both gauges, pool and model
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/agy-forward.sh" preflight [--model <slug>] [--effort low|medium|high] [--class mechanical|reasoning|hardest]
+
+# 2. The run (foreground, timeout 600000 ms), with the model and effort the preflight printed
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/agy-forward.sh" run [--model <slug>] [--effort <level>] [--continue] <<'EOF_TASK'
+<your task, verbatim>
 EOF_TASK
-)
-GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="ssh -o BatchMode=yes" bash "${CLAUDE_PLUGIN_ROOT}/scripts/agy-forward.sh" agy -p "$TASK" \
+```
+
+`run` appends the constraints paragraph and executes:
+
+```bash
+GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="ssh -o BatchMode=yes" agy -p "<your task>
+
+Constraints: work directly in this workspace following the instructions above. Do not invoke other AI CLIs (claude, codex, copilot, gemini, ollama). Do not commit, push, switch branches or delete files. If a command is denied by policy, stop and report it — do not look for another way to run it. Leave your changes in the working tree and end with a short list of the files you touched." \
   --add-dir "$PWD" \
   --dangerously-skip-permissions \
   --disable-slash-commands \
   --output-format text \
   --print-timeout 9m \
-  [--model <slug>] [--effort low|medium|high] [--continue]
+  [--model <slug>] [--effort <level>, Gemini slugs only] [--continue]
 ```
 
-One foreground call, stdout returned verbatim, plus any stderr line starting
-with `jetski:` or `[agy]` (soft-denied actions, print-timeout partial output,
-fatal errors). `scripts/agy-forward.sh` passes the arguments to `agy`
-unchanged and only adds the quota watchdog: it finds this run's log in
-`~/.gemini/antigravity-cli/log/` (the `cli-*.log` created after the launch
-whose `promptLength` matches the task, so `/usage` probes and other sessions'
-runs are ignored) and aborts only its own `agy` process.
+stdout is returned verbatim, plus any stderr line starting with `jetski:` or
+`[agy]` (soft-denied actions, print-timeout partial output, fatal errors). The
+quota watchdog finds this run's log in `~/.gemini/antigravity-cli/log/` (the
+`cli-*.log` created after the launch whose `promptLength` matches the task, so
+`/usage` probes and other sessions' runs are ignored) and aborts only its own
+`agy` process. After a quota abort, `preflight --other-pool` checks only the
+other pool before the single rerun. `bash tests/run.sh` exercises all of this
+against a fake `agy` and a temporary `HOME`, without network.
 
 ## Safety model
 
@@ -310,11 +321,11 @@ What this does **not** cover — know it before delegating:
 
 | Piece | Purpose |
 |---|---|
-| `agents/antigravity-rescue.md` | Thin forwarder subagent — one `agy -p` call, output returned verbatim |
+| `agents/antigravity-rescue.md` | Thin forwarder subagent — runs the script's preflight and run, output returned verbatim |
 | `/antigravity:rescue` | Delegate a task explicitly (`--background`, `--wait`, `--model`, `--effort`) |
 | `/antigravity:setup` | Locate binary, version floor, auth probe, merge + verify deny rules, list models |
-| `scripts/agy-forward.sh` | Runs `agy` and aborts it early when its own log shows repeated `RESOURCE_EXHAUSTED` |
-| `tests/run.sh` | Hermetic tests for the script (fake `agy`, temporary `HOME`) |
+| `scripts/agy-forward.sh` | `preflight`: locates `agy`, deny gate, both gauges, pool and model. `run`: fixed flags, constraints paragraph, `agy`, aborted early when its own log shows repeated `RESOURCE_EXHAUSTED` |
+| `tests/run.sh` | Hermetic tests for the script (fake `agy` in `tests/fake-agy.sh`, `/usage` fixtures in `tests/fixtures/`, temporary `HOME`) |
 | `docs/permissions.json` | The deny rules setup merges |
 | `docs/claude-md-snippet.md` | Ready-to-paste CLAUDE.md block |
 | `docs/delegation-guide.md` | Multi-lane orchestration guide |

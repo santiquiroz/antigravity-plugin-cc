@@ -12,7 +12,22 @@
   (agy 1.2.5: `/usage` refresh failing, per-model 429s the weekly gauge does
   not show); the watchdog does not depend on the gauge. The subagent reruns
   once on the other pool on that line.
-- `tests/run.sh`: hermetic tests with a fake `agy` and a temporary `HOME`.
+- The forwarding logic moved from the subagent prompt into
+  `scripts/agy-forward.sh`, so it no longer depends on an LLM re-reading prose
+  on every call. `preflight` locates `agy`, applies the deny-block gate, reads
+  `/usage` and `/model` (with `MSYS_NO_PATHCONV=1`, without
+  `--disable-slash-commands`) and prints both gauges plus the chosen `model:`
+  and `effort:` (pool switch at 2 % or less, both pools out → exit 69,
+  unreadable `/usage` → exit 70; `--other-pool` checks only the other pool
+  after a mid-run quota abort). `run` reads the task from stdin, appends the
+  constraints paragraph and adds the fixed flags, forwarding `--effort` only
+  with `gemini-` slugs. The subagent now just calls the two subcommands and
+  applies the result rules.
+- `tests/run.sh`: hermetic tests with a fake `agy` (records its arguments and
+  environment, answers `/usage` from `tests/fixtures/` and `/model`) and a
+  temporary `HOME`; the tests run in parallel.
+- The watchdog notices that `agy` exited within 0.25 s instead of waiting out
+  its 2 s log check.
 - `.gitattributes` keeps `*.sh` at LF so bash runs them with
   `core.autocrlf=true`.
 

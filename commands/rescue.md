@@ -21,7 +21,7 @@ Execution mode:
 
 Operating rules:
 
-- The subagent is a thin forwarder only. It uses one `Bash` call to run `agy -p ...` headless with the repo registered as workspace, and returns that command's output as-is.
+- The subagent is a thin forwarder only. It runs this plugin's `scripts/agy-forward.sh` (a free quota preflight, then `agy -p ...` headless with the repo registered as workspace) and returns the output as-is.
 - Before dispatching, make sure the task text is self-contained: paste in the file paths, signatures and acceptance criteria it refers to. The delegate does not see this conversation.
 - Return the output verbatim to the user. Do not paraphrase, summarize, rewrite, or add commentary before or after it.
 - Do not ask the subagent to inspect files, monitor progress, summarize output, or do follow-up work of its own.

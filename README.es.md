@@ -217,31 +217,42 @@ llevan el esfuerzo en el nombre y agy rechaza el flag para ellos.
 
 ## Qué ejecuta realmente el reenviador
 
-```bash
-TASK=$(cat <<'EOF_TASK'
-<your task, verbatim>
+El subagente hace dos llamadas Bash a `scripts/agy-forward.sh`:
 
-Constraints: work directly in this workspace following the instructions above. Do not invoke other AI CLIs (claude, codex, copilot, gemini, ollama). Do not commit, push, switch branches or delete files. If a command is denied by policy, stop and report it — do not look for another way to run it. Leave your changes in the working tree and end with a short list of the files you touched.
+```bash
+# 1. Preflight gratuito (timeout 120000 ms): compuerta deny, ambos indicadores, pool y modelo
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/agy-forward.sh" preflight [--model <slug>] [--effort low|medium|high] [--class mechanical|reasoning|hardest]
+
+# 2. La ejecución (en primer plano, timeout 600000 ms), con el modelo y el esfuerzo que imprimió el preflight
+bash "${CLAUDE_PLUGIN_ROOT}/scripts/agy-forward.sh" run [--model <slug>] [--effort <level>] [--continue] <<'EOF_TASK'
+<your task, verbatim>
 EOF_TASK
-)
-GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="ssh -o BatchMode=yes" bash "${CLAUDE_PLUGIN_ROOT}/scripts/agy-forward.sh" agy -p "$TASK" \
+```
+
+`run` añade el párrafo de restricciones y ejecuta:
+
+```bash
+GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="ssh -o BatchMode=yes" agy -p "<your task>
+
+Constraints: work directly in this workspace following the instructions above. Do not invoke other AI CLIs (claude, codex, copilot, gemini, ollama). Do not commit, push, switch branches or delete files. If a command is denied by policy, stop and report it — do not look for another way to run it. Leave your changes in the working tree and end with a short list of the files you touched." \
   --add-dir "$PWD" \
   --dangerously-skip-permissions \
   --disable-slash-commands \
   --output-format text \
   --print-timeout 9m \
-  [--model <slug>] [--effort low|medium|high] [--continue]
+  [--model <slug>] [--effort <level>, Gemini slugs only] [--continue]
 ```
 
-Una llamada en primer plano, con stdout devuelto textualmente, más cualquier
-línea de stderr que comience con `jetski:` o `[agy]` (acciones con denegación
-suave [soft-denied], salida parcial por print-timeout, errores fatales).
-`scripts/agy-forward.sh` pasa los argumentos a `agy` sin cambios y solo añade
-el vigilante de cuota: localiza el log de esta ejecución en
-`~/.gemini/antigravity-cli/log/` (el `cli-*.log` creado después del lanzamiento
-cuyo `promptLength` coincide con la tarea, de modo que ignora las consultas de
-`/usage` y las ejecuciones de otras sesiones) y solo aborta su propio proceso
-`agy`.
+stdout se devuelve textualmente, más cualquier línea de stderr que comience con
+`jetski:` o `[agy]` (acciones con denegación suave [soft-denied], salida
+parcial por print-timeout, errores fatales). El vigilante de cuota localiza el
+log de esta ejecución en `~/.gemini/antigravity-cli/log/` (el `cli-*.log`
+creado después del lanzamiento cuyo `promptLength` coincide con la tarea, de
+modo que ignora las consultas de `/usage` y las ejecuciones de otras sesiones)
+y solo aborta su propio proceso `agy`. Tras un aborto por cuota,
+`preflight --other-pool` comprueba solo el otro pool antes del único
+reintento. `bash tests/run.sh` prueba todo esto contra un `agy` falso y un
+`HOME` temporal, sin red.
 
 ## Modelo de seguridad
 
@@ -335,11 +346,11 @@ Lo que esto **no** cubre — tenlo presente antes de delegar:
 
 | Componente | Propósito |
 |---|---|
-| `agents/antigravity-rescue.md` | Subagente reenviador ligero: una sola llamada a `agy -p`, salida devuelta textualmente |
+| `agents/antigravity-rescue.md` | Subagente reenviador ligero: ejecuta el preflight y la ejecución del script, salida devuelta textualmente |
 | `/antigravity:rescue` | Delega una tarea explícitamente (`--background`, `--wait`, `--model`, `--effort`) |
 | `/antigravity:setup` | Localiza el binario, versión mínima, prueba de autenticación, fusiona y verifica reglas de denegación, lista modelos |
-| `scripts/agy-forward.sh` | Ejecuta `agy` y lo aborta pronto cuando su propio log muestra `RESOURCE_EXHAUSTED` repetido |
-| `tests/run.sh` | Pruebas herméticas del script (`agy` falso, `HOME` temporal) |
+| `scripts/agy-forward.sh` | `preflight`: localiza `agy`, compuerta deny, ambos indicadores, pool y modelo. `run`: flags fijos, párrafo de restricciones y `agy`, abortado pronto cuando su propio log muestra `RESOURCE_EXHAUSTED` repetido |
+| `tests/run.sh` | Pruebas herméticas del script (`agy` falso en `tests/fake-agy.sh`, fixtures de `/usage` en `tests/fixtures/`, `HOME` temporal) |
 | `docs/permissions.json` | Las reglas de denegación que fusiona setup |
 | `docs/claude-md-snippet.md` | Bloque listo para pegar en CLAUDE.md |
 | `docs/delegation-guide.md` | Guía de orquestación multicarril |

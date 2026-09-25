@@ -1,14 +1,260 @@
 #!/usr/bin/env bash
-# Usage: agy-forward.sh <agy-binary> <agy args...>
-# Runs agy and aborts it as soon as its own run log shows repeated RESOURCE_EXHAUSTED errors.
+# Usage:
+#   agy-forward.sh preflight [--model <slug>] [--effort low|medium|high] [--class mechanical|reasoning|hardest] [--other-pool]
+#   agy-forward.sh run [--model <slug>] [--effort low|medium|high] [--continue] <task on stdin>
+#   agy-forward.sh watch <agy-binary> [agy args...]
 set -u
 
+readonly USAGE_EXIT=64
+readonly POOLS_EXHAUSTED_EXIT=69
+readonly PREFLIGHT_FAILED_EXIT=70
 readonly QUOTA_EXIT=75
+readonly UNSAFE_EXIT=78
+readonly NOT_FOUND_EXIT=127
+readonly EXHAUSTED_PERCENT=2
 readonly DEFAULT_ABORT_AFTER=3
 readonly POLL_STEP=0.25
 readonly POLLS_PER_WATCH=8
 readonly LOG_DIR=${AGY_LOG_DIR:-$HOME/.gemini/antigravity-cli/log}
+readonly SLUG_PATTERN='(gemini|claude|gpt)-[A-Za-z0-9._-]+'
+readonly SETTINGS_FILE="$HOME/.gemini/antigravity-cli/settings.json"
+readonly CONSTRAINTS="Constraints: work directly in this workspace following the instructions above. Do not invoke other AI CLIs (claude, codex, copilot, gemini, ollama). Do not commit, push, switch branches or delete files. If a command is denied by policy, stop and report it — do not look for another way to run it. Leave your changes in the working tree and end with a short list of the files you touched."
 CHILD_PID=""
+AGY=""
+GEMINI_PERCENT=""
+GEMINI_RESET=""
+CLAUDE_GPT_PERCENT=""
+CLAUDE_GPT_RESET=""
+OPT_MODEL=""
+OPT_EFFORT=""
+OPT_CLASS=""
+OPT_OTHER_POOL=0
+OPT_CONTINUE=0
+
+usage_error() {
+  printf 'agy-forward.sh: %s\n' "$1" >&2
+  exit "$USAGE_EXIT"
+}
+
+is_one_of() {
+  local value=$1 candidate
+  shift
+  for candidate in "$@"; do
+    [ "$value" = "$candidate" ] && return 0
+  done
+  return 1
+}
+
+set_option() {
+  case $1 in
+    --model) OPT_MODEL=$2 ;;
+    --effort) is_one_of "$2" low medium high || usage_error "--effort must be low, medium or high"; OPT_EFFORT=$2 ;;
+    --class) is_one_of "$2" mechanical reasoning hardest || usage_error "--class must be mechanical, reasoning or hardest"; OPT_CLASS=$2 ;;
+  esac
+}
+
+parse_options() {
+  while [ $# -gt 0 ]; do
+    case $1 in
+      --model | --effort | --class)
+        [ $# -ge 2 ] || usage_error "$1 needs a value"
+        set_option "$1" "$2"
+        shift 2
+        ;;
+      --other-pool) OPT_OTHER_POOL=1; shift ;;
+      --continue) OPT_CONTINUE=1; shift ;;
+      *) usage_error "unknown option: $1" ;;
+    esac
+  done
+}
+
+agy_candidates() {
+  local appdata=${LOCALAPPDATA:-}
+  appdata=${appdata//\\//}
+  [ -n "$appdata" ] && printf '%s\n' "$appdata/agy/bin/agy.exe"
+  printf '%s\n' "$HOME/.gemini/bin/agy.exe" "$HOME/.gemini/bin/agy" "$HOME/.local/bin/agy"
+}
+
+find_agy() {
+  local candidate
+  command -v agy 2>/dev/null && return 0
+  while IFS= read -r candidate; do
+    [ -f "$candidate" ] && { printf '%s\n' "$candidate"; return 0; }
+  done < <(agy_candidates)
+  return 1
+}
+
+require_agy() {
+  AGY=$(find_agy) && return 0
+  echo "antigravity-rescue: agy not found — run /antigravity:setup"
+  return "$NOT_FOUND_EXIT"
+}
+
+# Headless agy needs --dangerously-skip-permissions; user deny rules are what still wins under it.
+require_deny_block() {
+  grep -q '"deny"' "$SETTINGS_FILE" 2>/dev/null && return 0
+  echo "antigravity-rescue: no permissions.deny block in ~/.gemini/antigravity-cli/settings.json — refusing to run with --dangerously-skip-permissions. Run /antigravity:setup first."
+  return "$UNSAFE_EXIT"
+}
+
+# Without MSYS_NO_PATHCONV, Git Bash rewrites "/usage" into a Windows path and agy sends it to the model as a paid turn.
+slash_probe() {
+  local out
+  out=$(MSYS_NO_PATHCONV=1 "$AGY" -p "$1" --output-format text --print-timeout 30s)
+  printf '%s' "${out//$'\r'/}"
+}
+
+default_model() {
+  [[ $(slash_probe /model) =~ $SLUG_PATTERN ]] && printf '%s' "${BASH_REMATCH[0]}"
+}
+
+pool_label() {
+  case $1 in
+    gemini) printf 'Gemini' ;;
+    *) printf 'Claude/GPT' ;;
+  esac
+}
+
+pool_gauge() {
+  printf '%s\n' "$1" | awk -F '\t' -v pool="$2" '
+    { name = tolower($1); sub(/^[[:space:]]+/, "", name) }
+    index(name, pool) != 1 { next }
+    {
+      for (i = 2; i <= NF; i++) {
+        if ($i !~ /^[[:space:]]*[0-9.]+%[[:space:]]*$/) continue
+        percent = $i; gsub(/[[:space:]%]/, "", percent)
+        reset = (i < NF) ? $(i + 1) : ""; gsub(/^[[:space:]]+|[[:space:]]+$/, "", reset)
+        printf "%d\t%s\n", percent, reset
+        exit
+      }
+    }'
+}
+
+percent_of() {
+  case $1 in
+    gemini) printf '%s' "$GEMINI_PERCENT" ;;
+    *) printf '%s' "$CLAUDE_GPT_PERCENT" ;;
+  esac
+}
+
+reset_of() {
+  case $1 in
+    gemini) printf '%s' "$GEMINI_RESET" ;;
+    *) printf '%s' "$CLAUDE_GPT_RESET" ;;
+  esac
+}
+
+read_usage() {
+  local usage
+  usage=$(slash_probe /usage)
+  IFS=$'\t' read -r GEMINI_PERCENT GEMINI_RESET < <(pool_gauge "$usage" gemini)
+  IFS=$'\t' read -r CLAUDE_GPT_PERCENT CLAUDE_GPT_RESET < <(pool_gauge "$usage" claude)
+  [ -n "$GEMINI_PERCENT" ] && [ -n "$CLAUDE_GPT_PERCENT" ] && return 0
+  printf '[antigravity-rescue] preflight failed: agy -p "/usage" did not show both quota pools:\n%s\n' "$usage"
+  return "$PREFLIGHT_FAILED_EXIT"
+}
+
+is_exhausted() {
+  [ "$(percent_of "$1")" -le "$EXHAUSTED_PERCENT" ]
+}
+
+is_gemini_slug() {
+  case $1 in
+    gemini-*) return 0 ;;
+  esac
+  return 1
+}
+
+# agy's documented default is a Gemini model, so an unreadable default counts as the Gemini pool.
+pool_of() {
+  case $1 in
+    '' | gemini-*) printf 'gemini' ;;
+    *) printf 'claude-gpt' ;;
+  esac
+}
+
+other_pool() {
+  case $1 in
+    gemini) printf 'claude-gpt' ;;
+    *) printf 'gemini' ;;
+  esac
+}
+
+class_of_slug() {
+  case $1 in
+    *flash* | gpt-oss*) printf 'mechanical' ;;
+    claude-opus*) printf 'hardest' ;;
+    *) printf 'reasoning' ;;
+  esac
+}
+
+task_class() {
+  [ -n "$OPT_CLASS" ] && { printf '%s' "$OPT_CLASS"; return 0; }
+  class_of_slug "$1"
+}
+
+equivalent_slug() {
+  case $1:$2 in
+    gemini:mechanical) printf 'gemini-3.8-flash-low' ;;
+    gemini:*) printf 'gemini-3.1-pro-high' ;;
+    claude-gpt:mechanical) printf 'gpt-oss-120b-medium' ;;
+    claude-gpt:hardest) printf 'claude-opus-4-6-thinking' ;;
+    *) printf 'claude-sonnet-4-6' ;;
+  esac
+}
+
+print_gauges() {
+  printf '[antigravity-rescue] preflight: Gemini %s%% (resets %s); Claude/GPT %s%% (resets %s)\n' \
+    "$GEMINI_PERCENT" "$GEMINI_RESET" "$CLAUDE_GPT_PERCENT" "$CLAUDE_GPT_RESET"
+}
+
+print_choice() {
+  local model=$1 effort=$2
+  is_gemini_slug "$model" || effort=""
+  printf 'model: %s\neffort: %s\n' "$model" "$effort"
+}
+
+report_both_exhausted() {
+  printf '[antigravity-rescue] both Antigravity pools exhausted (Gemini %s%% resets %s; Claude/GPT %s%% resets %s)\n' \
+    "$GEMINI_PERCENT" "$GEMINI_RESET" "$CLAUDE_GPT_PERCENT" "$CLAUDE_GPT_RESET"
+  return "$POOLS_EXHAUSTED_EXIT"
+}
+
+switch_pool() {
+  local from=$1 model=$2 slug
+  slug=$(equivalent_slug "$(other_pool "$from")" "$(task_class "$model")")
+  printf '[antigravity-rescue] %s pool at %s%%, running on %s instead\n' "$(pool_label "$from")" "$(percent_of "$from")" "$slug"
+  print_choice "$slug" ""
+}
+
+choose_pool() {
+  local model=$1 pool
+  pool=$(pool_of "$model")
+  is_exhausted "$pool" || { print_choice "$model" "$OPT_EFFORT"; return 0; }
+  is_exhausted "$(other_pool "$pool")" && { report_both_exhausted; return; }
+  switch_pool "$pool" "$model"
+}
+
+# After a mid-run quota abort the run's own pool is known to be out, whatever its gauge says.
+choose_other_pool() {
+  local model=$1 target
+  target=$(other_pool "$(pool_of "$model")")
+  is_exhausted "$target" || { print_choice "$(equivalent_slug "$target" "$(task_class "$model")")" ""; return 0; }
+  printf '[antigravity-rescue] %s pool at %s%% (resets %s), no other pool to rerun on\n' \
+    "$(pool_label "$target")" "$(percent_of "$target")" "$(reset_of "$target")"
+  return "$POOLS_EXHAUSTED_EXIT"
+}
+
+preflight() {
+  local model
+  require_agy || return
+  require_deny_block || return
+  read_usage || return
+  model=${OPT_MODEL:-$(default_model)}
+  print_gauges
+  [ "$OPT_OTHER_POOL" = 1 ] && { choose_other_pool "$model"; return; }
+  choose_pool "$model"
+}
 
 abort_threshold() {
   local n=${AGY_QUOTA_ABORT_AFTER:-$DEFAULT_ABORT_AFTER}
@@ -151,8 +397,8 @@ watch_child() {
   wait "$pid"
 }
 
-main() {
-  [ $# -ge 1 ] || { echo "usage: agy-forward.sh <agy-binary> [agy args...]" >&2; exit 64; }
+watch_command() {
+  [ $# -ge 1 ] || usage_error "watch needs the agy binary"
   local existing lengths model
   existing=$(list_run_logs)
   lengths=$(prompt_lengths -p "$@") || lengths=""
@@ -160,9 +406,35 @@ main() {
   trap 'stop_child "$CHILD_PID"; exit 143' TERM INT HUP
   "$@" &
   CHILD_PID=$!
-  [ -n "$lengths" ] || { wait "$CHILD_PID"; exit; }
+  [ -n "$lengths" ] || { wait "$CHILD_PID"; return; }
   # shellcheck disable=SC2086
   watch_child "$CHILD_PID" "$existing" $lengths "$model"
+}
+
+run_task() {
+  local task prompt args
+  task=$(cat)
+  [ -n "${task//[[:space:]]/}" ] || usage_error "no task on stdin"
+  require_agy || return
+  require_deny_block || return
+  prompt=$(printf '%s\n\n%s' "$task" "$CONSTRAINTS")
+  args=(-p "$prompt" --add-dir "$PWD" --dangerously-skip-permissions --disable-slash-commands --output-format text --print-timeout 9m)
+  [ -n "$OPT_MODEL" ] && args+=(--model "$OPT_MODEL")
+  [ -n "$OPT_EFFORT" ] && is_gemini_slug "$OPT_MODEL" && args+=(--effort "$OPT_EFFORT")
+  [ "$OPT_CONTINUE" = 1 ] && args+=(--continue)
+  export GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="ssh -o BatchMode=yes"
+  watch_command "$AGY" "${args[@]}"
+}
+
+main() {
+  local command=${1:-}
+  [ $# -gt 0 ] && shift
+  case $command in
+    preflight) parse_options "$@"; preflight ;;
+    run) parse_options "$@"; run_task ;;
+    watch) watch_command "$@" ;;
+    *) usage_error "usage: agy-forward.sh preflight|run|watch [options]" ;;
+  esac
 }
 
 main "$@"

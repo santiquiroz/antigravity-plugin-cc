@@ -1,0 +1,2 @@
+Gemini Models	Weekly Limit Remaining	0%	2026-09-30 09:00
+Claude and GPT models	Weekly Limit Remaining	25%	2026-10-01 14:30
