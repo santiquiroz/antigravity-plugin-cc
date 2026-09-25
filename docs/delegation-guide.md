@@ -93,8 +93,10 @@ so the forwarder passes that flag on every invocation.
 - `/antigravity:setup` merges the recommended deny list into
   `~/.gemini/antigravity-cli/settings.json`: `git push`, `git reset`, `git clean`,
   `rm`/`rmdir`/`del`/`rd`/`Remove-Item`, `sudo`, and `write_file(.git/)`.
-- The `antigravity-rescue` subagent refuses to run without a `permissions.deny`
-  block in settings.
+- The `antigravity-rescue` subagent refuses to run (exit 78) unless
+  `permissions.deny` holds every critical rule: `git push`, `git reset`,
+  `git clean`, `rm`, `rmdir`, `del`, `rd`, `Remove-Item` and
+  `write_file(.git/)`.
 - Deny rules are global: they also apply to interactive `agy` sessions.
 - Under `--dangerously-skip-permissions`, web fetch, browser, and MCP tools are
   auto-approved. Never delegate tasks that process untrusted content.
