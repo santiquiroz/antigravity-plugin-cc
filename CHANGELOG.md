@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+- Quota watchdog: the forward now goes through `scripts/agy-forward.sh`, which
+  runs `agy` in the background, finds that run's own log (the `cli-*.log`
+  created after the launch whose `promptLength` matches the task) and, at 3
+  `RESOURCE_EXHAUSTED` lines (`AGY_QUOTA_ABORT_AFTER`), stops only that `agy`
+  process and exits 75 with
+  `[antigravity-rescue] quota: RESOURCE_EXHAUSTED on <slug> (<reason>, Resets in <time>)`.
+  The 0.3.0 preflight did not prevent three nine-minute burns on 2026-09-17
+  (agy 1.2.5: `/usage` refresh failing, per-model 429s the weekly gauge does
+  not show); the watchdog does not depend on the gauge. The subagent reruns
+  once on the other pool on that line.
+- `tests/run.sh`: hermetic tests with a fake `agy` and a temporary `HOME`.
+- `.gitattributes` keeps `*.sh` at LF so bash runs them with
+  `core.autocrlf=true`.
+
 ## 0.3.0 — 2026-09-10
 
 - Quota-aware pool selection: before every run the subagent reads both weekly

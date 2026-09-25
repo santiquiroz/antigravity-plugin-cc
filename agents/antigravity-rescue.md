@@ -55,7 +55,7 @@ TASK=$(cat <<'EOF_TASK'
 Constraints: work directly in this workspace following the instructions above. Do not invoke other AI CLIs (claude, codex, copilot, gemini, ollama). Do not commit, push, switch branches or delete files. If a command is denied by policy, stop and report it — do not look for another way to run it. Leave your changes in the working tree and end with a short list of the files you touched.
 EOF_TASK
 )
-GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="ssh -o BatchMode=yes" "$AGY" -p "$TASK" \
+GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="ssh -o BatchMode=yes" bash "${CLAUDE_PLUGIN_ROOT}/scripts/agy-forward.sh" "$AGY" -p "$TASK" \
   --add-dir "$PWD" \
   --dangerously-skip-permissions \
   --disable-slash-commands \
@@ -66,6 +66,7 @@ GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="ssh -o BatchMode=yes" "$AGY" -p "$TASK" \
 
 - The heredoc delimiter must not occur anywhere in the task text. Use `EOF_TASK` unless the task contains that string; then pick another (e.g. `EOF_TASK_7f3a`). A task line equal to the delimiter would end the heredoc early and run the rest of the task as shell.
 - The bracketed placeholders are optional flags: drop the ones the request did not ask for. Never pass literal brackets.
+- `scripts/agy-forward.sh` runs `"$AGY"` with exactly these arguments and watches that run's own log in `~/.gemini/antigravity-cli/log/`: the `cli-*.log` created after the launch whose `Print mode: starting (promptLength=N` line matches the task length (probes and other sessions' runs are ignored). At 3 `RESOURCE_EXHAUSTED` lines (`AGY_QUOTA_ABORT_AFTER` changes the count) it stops only that `agy` process, prints `[antigravity-rescue] quota: RESOURCE_EXHAUSTED on <slug> (<reason>, Resets in <time>)` and exits 75, seconds into the run instead of after the nine-minute backoff. Otherwise it passes `agy`'s output and exit code through unchanged.
 - `GIT_TERMINAL_PROMPT=0` and `GIT_SSH_COMMAND="ssh -o BatchMode=yes"` make any git command that would wait for credentials, an SSH passphrase or a host-key confirmation fail immediately instead of hanging the headless turn until the print timeout.
 - `--add-dir "$PWD"` registers the repo as the workspace. Headless runs do not trust the current directory on their own; without it even reads are soft-denied.
 - `--disable-slash-commands` stops a task that begins with `/` from being expanded as an `agy` slash command.
@@ -90,6 +91,7 @@ Result handling:
 
 - The Bash tool returns stdout and stderr together. Return `agy`'s stdout exactly as-is, keep the stderr lines that start with `jetski:`, `[agy]` or `error:`, and drop other stderr noise (Go log lines mentioning `logging before google.Init`). The kept markers are the stable diagnostics: soft-denied tool actions (a task that needed a denied command reports here), print-timeout partial output, and fatal errors.
 - Exit code 1 with `authentication required` or `not logged into Antigravity` → tell the caller to sign in once by running `agy` interactively (browser flow) and then run `/antigravity:setup`.
+- Exit 75 with a `[antigravity-rescue] quota:` line → the run's own log hit `RESOURCE_EXHAUSTED`, so its pool or model is out even if `/usage` still showed room (the gauge can be stale, and per-model 429s never show there). Re-run the `/usage` preflight (free) only to check the OTHER pool: if it shows more than 2 % → rerun the SAME task once on it (table above), without `--effort` and without `--continue`, and prefix the output with `[antigravity-rescue] <pool> pool exhausted mid-run, reran on <slug>` followed by the quota line. Otherwise return the quota line verbatim and stop. Never retry a third time.
 - Exhausted-pool signature after a run: `status: ERROR` / `The stream was interrupted. Please continue the task you were working on.` together with `[agy] print timeout` on stderr, or output mentioning `quota`, `rate limit`, `RESOURCE_EXHAUSTED`, `429`, `weekly limit` or exhausted `credits`. Re-run the `/usage` preflight (free). If the pool of that run now shows ≤ 2 % and the other pool has room → rerun the SAME task once on the other pool (table above), without `--effort` and without `--continue`, and prefix the output with `[antigravity-rescue] <pool> pool exhausted mid-run, reran on <slug>`. Otherwise (both pools out, or the pool still has room so it was a transient) → return the output verbatim and stop. Never retry a third time.
 - Any other non-zero exit → return stderr verbatim.
 

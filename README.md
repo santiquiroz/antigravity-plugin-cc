@@ -158,9 +158,15 @@ pools are out it does not run at all and returns
 times. This matters because an exhausted pool does not fail fast: agy retries
 with backoff (`RESOURCE_EXHAUSTED (code 429)` in `cli.log`) until the print
 timeout, then reports `status: ERROR` / `The stream was interrupted` — nine
-minutes lost per attempt and no quota word in the output. If that signature
-appears anyway mid-run, the subagent re-reads `/usage` and reruns once on the
-other pool when it has room. Pass `--model claude-sonnet-4-6` (or say the
+minutes lost per attempt and no quota word in the output. The gauge alone is
+not enough (it can be stale, and a per-model 429 never shows there), so
+`scripts/agy-forward.sh` also watches the run's own log: at 3
+`RESOURCE_EXHAUSTED` lines (`AGY_QUOTA_ABORT_AFTER` changes the count) it stops
+that `agy` process and returns
+`[antigravity-rescue] quota: RESOURCE_EXHAUSTED on <slug> (<reason>, Resets in <time>)`
+with exit 75 within seconds. The subagent then reruns once on the other pool
+when `/usage` shows it has room; the same applies if the timeout signature
+appears anyway. Pass `--model claude-sonnet-4-6` (or say the
 Gemini pool is low) to start on the second pool directly.
 
 ### Check quota and model from the CLI
@@ -206,7 +212,7 @@ TASK=$(cat <<'EOF_TASK'
 Constraints: work directly in this workspace following the instructions above. Do not invoke other AI CLIs (claude, codex, copilot, gemini, ollama). Do not commit, push, switch branches or delete files. If a command is denied by policy, stop and report it — do not look for another way to run it. Leave your changes in the working tree and end with a short list of the files you touched.
 EOF_TASK
 )
-GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="ssh -o BatchMode=yes" agy -p "$TASK" \
+GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="ssh -o BatchMode=yes" bash "${CLAUDE_PLUGIN_ROOT}/scripts/agy-forward.sh" agy -p "$TASK" \
   --add-dir "$PWD" \
   --dangerously-skip-permissions \
   --disable-slash-commands \
@@ -217,7 +223,11 @@ GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="ssh -o BatchMode=yes" agy -p "$TASK" \
 
 One foreground call, stdout returned verbatim, plus any stderr line starting
 with `jetski:` or `[agy]` (soft-denied actions, print-timeout partial output,
-fatal errors).
+fatal errors). `scripts/agy-forward.sh` passes the arguments to `agy`
+unchanged and only adds the quota watchdog: it finds this run's log in
+`~/.gemini/antigravity-cli/log/` (the `cli-*.log` created after the launch
+whose `promptLength` matches the task, so `/usage` probes and other sessions'
+runs are ignored) and aborts only its own `agy` process.
 
 ## Safety model
 
@@ -292,7 +302,7 @@ What this does **not** cover — know it before delegating:
 | A task starting with `/` is expanded as a slash command | `--disable-slash-commands` |
 | `--print-timeout` returns partial output with exit 0 | pinned to 9m, under the Bash tool ceiling, so a long turn degrades instead of being killed |
 | Installer may leave `agy` off PATH (seen on Windows: binary in `%LOCALAPPDATA%\agy\bin` and `~/.gemini/bin`, neither on PATH) | subagent and setup resolve those dirs themselves; setup offers `agy install` |
-| An exhausted pool does not fail fast: agy retries with backoff until the print timeout, then reports `status: ERROR` / `The stream was interrupted` with no quota word | the forwarder reads both gauges with `agy -p "/usage"` (free) before every run and picks the pool; both pools out → it returns immediately without running |
+| An exhausted pool does not fail fast: agy retries with backoff until the print timeout, then reports `status: ERROR` / `The stream was interrupted` with no quota word | the forwarder reads both gauges with `agy -p "/usage"` (free) before every run and picks the pool; both pools out → it returns immediately without running. If the run still hits `RESOURCE_EXHAUSTED` (stale gauge, per-model 429), `scripts/agy-forward.sh` sees it in the run's own log and aborts within seconds with exit 75 |
 | `agy -p "/usage"` in Git Bash becomes a paid model turn (MSYS rewrites `/usage` into a Windows path) | `MSYS_NO_PATHCONV=1` on every print-mode slash command |
 | `--effort` is rejected for Claude and GPT-OSS slugs | the flag is only forwarded with Gemini slugs |
 
@@ -303,6 +313,8 @@ What this does **not** cover — know it before delegating:
 | `agents/antigravity-rescue.md` | Thin forwarder subagent — one `agy -p` call, output returned verbatim |
 | `/antigravity:rescue` | Delegate a task explicitly (`--background`, `--wait`, `--model`, `--effort`) |
 | `/antigravity:setup` | Locate binary, version floor, auth probe, merge + verify deny rules, list models |
+| `scripts/agy-forward.sh` | Runs `agy` and aborts it early when its own log shows repeated `RESOURCE_EXHAUSTED` |
+| `tests/run.sh` | Hermetic tests for the script (fake `agy`, temporary `HOME`) |
 | `docs/permissions.json` | The deny rules setup merges |
 | `docs/claude-md-snippet.md` | Ready-to-paste CLAUDE.md block |
 | `docs/delegation-guide.md` | Multi-lane orchestration guide |
