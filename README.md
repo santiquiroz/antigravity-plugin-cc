@@ -258,7 +258,9 @@ and the hooks directory (`git rev-parse --git-path hooks`, so linked worktrees
 and `core.hooksPath` are covered). For each one that changed it appends
 `[antigravity-rescue] WARNING: <what changed> — review before your next git command`
 to the output. It never reverts anything. A hook or alias the delegate wrote
-runs on your next `git commit`, so read the warning before you run one.
+runs on your next `git commit`, so read the warning before you run one. Only
+the repository's own config is watched: an alias or setting written with
+`git config --global` (`~/.gitconfig`) is not reported.
 `bash tests/run.sh` exercises all of this against a fake `agy` and a
 temporary `HOME`, without network.
 

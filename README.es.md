@@ -274,7 +274,9 @@ así que cubre worktrees enlazados y `core.hooksPath`). Por cada uno que haya
 cambiado añade a la salida
 `[antigravity-rescue] WARNING: <what changed> — review before your next git command`.
 Nunca revierte nada. Un hook o un alias que haya escrito el delegado se ejecuta
-en tu siguiente `git commit`, así que lee el aviso antes de lanzar uno.
+en tu siguiente `git commit`, así que lee el aviso antes de lanzar uno. Solo se
+vigila la configuración del propio repositorio: un alias o un ajuste escrito con
+`git config --global` (`~/.gitconfig`) no se avisa.
 `bash tests/run.sh` prueba todo esto contra un `agy` falso y un `HOME`
 temporal, sin red.
 
