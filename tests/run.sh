@@ -10,6 +10,7 @@ GIT_BIN=$(dirname "$(command -v git)")
 FAILURES=0
 DEFAULT_ABORT_AFTER=3
 QUOTA_ERRORS_SLACK=5
+DEFAULT_TEST_JOBS=6
 
 fail() {
   printf '    FAIL: %s\n' "$*"
@@ -152,18 +153,12 @@ watch_quota_run() {
 }
 
 test_quota_errors_abort_the_run_early() {
-  local prompt out rc start elapsed pid
-  prompt=$(prompt_of_length 500)
+  local out rc
   export FAKE_AGY_MODE=quota FAKE_AGY_PIDFILE="$HOME/fake.pid"
-  start=$SECONDS
-  out=$(bash "$FORWARD" watch "$FAKE_AGY" -p "$prompt" --model gemini-3.1-pro-high)
+  out=$(watch_quota_run)
   rc=$?
-  elapsed=$((SECONDS - start))
-  pid=$(cat "$FAKE_AGY_PIDFILE")
-  assert_eq "$rc" 75 "exit code" || return 1
-  [ "$elapsed" -lt 15 ] || fail "took ${elapsed}s" || return 1
-  assert_contains "$out" "[antigravity-rescue] quota: RESOURCE_EXHAUSTED on gemini-3.1-pro-high (Individual quota reached, Resets in 10h)" "quota line" || return 1
-  ! kill -0 "$pid" 2>/dev/null || fail "fake agy $pid still alive"
+  assert_aborted_early "$rc" "$(cat "$FAKE_AGY_PIDFILE")" || return 1
+  assert_contains "$out" "[antigravity-rescue] quota: RESOURCE_EXHAUSTED on gemini-3.1-pro-high (Individual quota reached, Resets in 10h)" "quota line"
 }
 
 test_quota_abort_stays_early_with_many_old_logs() {
@@ -593,12 +588,24 @@ list_tests() {
   declare -F | awk '{print $3}' | grep '^test_'
 }
 
-# Tests run in parallel: most of their time is spent waiting on the fake agy's sleeps.
+test_jobs() {
+  local n=${TEST_JOBS:-$DEFAULT_TEST_JOBS}
+  case $n in
+    '' | *[!0-9]* | 0) n=$DEFAULT_TEST_JOBS ;;
+  esac
+  printf '%s' "$n"
+}
+
+# Tests run in parallel because most of their time is spent waiting on the fake agy's sleeps,
+# but capped: launching every test at once loads the machine enough to slow the watcher's polls.
 main() {
-  local name results
+  local name results jobs running=0
   results=$(mktemp -d)
+  jobs=$(test_jobs)
   for name in $(list_tests); do
+    [ "$running" -lt "$jobs" ] || { wait -n; running=$((running - 1)); }
     run_test "$name" "$results" &
+    running=$((running + 1))
   done
   wait
   for name in $(list_tests); do

@@ -25,7 +25,10 @@
   applies the result rules.
 - `tests/run.sh`: hermetic tests with a fake `agy` (records its arguments and
   environment, answers `/usage` from `tests/fixtures/` and `/model`) and a
-  temporary `HOME`; the tests run in parallel.
+  temporary `HOME`; the tests run in parallel, at most 6 at a time
+  (`TEST_JOBS`), and the quota abort tests count the `RESOURCE_EXHAUSTED`
+  lines the fake `agy` wrote before it was stopped instead of timing the run
+  with the wall clock, which a loaded machine stretches past any fixed limit.
 - The watchdog notices that `agy` exited within 0.25 s instead of waiting out
   its 2 s log check.
 - The watchdog tells the logs that existed before the launch, or that started
