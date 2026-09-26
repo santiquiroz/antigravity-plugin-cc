@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.0 — 2026-09-26
 
 - Quota watchdog: the forward now goes through `scripts/agy-forward.sh`, which
   runs `agy` in the background, finds that run's own log (the `cli-*.log`
