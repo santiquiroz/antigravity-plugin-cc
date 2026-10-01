@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Usage:
 #   agy-forward.sh preflight [--model <slug>] [--effort low|medium|high] [--class mechanical|reasoning|hardest] [--other-pool]
-#   agy-forward.sh run [--model <slug>] [--effort low|medium|high] [--continue] <task on stdin>
+#   agy-forward.sh run [--model <slug>] [--effort low|medium|high] [--continue] [--read-only] <task on stdin>
 #   agy-forward.sh watch <agy-binary> [agy args...]
 set -u
 
@@ -19,6 +19,7 @@ readonly LOG_DIR=${AGY_LOG_DIR:-$HOME/.gemini/antigravity-cli/log}
 readonly SLUG_PATTERN='(gemini|claude|gpt)-[A-Za-z0-9._-]+'
 readonly SETTINGS_FILE="$HOME/.gemini/antigravity-cli/settings.json"
 readonly CONSTRAINTS="Constraints: work directly in this workspace following the instructions above. Do not invoke other AI CLIs (claude, codex, copilot, gemini, ollama). Do not commit, push, switch branches or delete files. If a command is denied by policy, stop and report it — do not look for another way to run it. Leave your changes in the working tree and end with a short list of the files you touched."
+readonly READ_ONLY_CONSTRAINTS="Constraints: this is a read-only run: do not edit files; report findings and proposed changes as text. Do not invoke other AI CLIs (claude, codex, copilot, gemini, ollama). If a command is denied by policy, stop and report it — do not look for another way to run it."
 CHILD_PID=""
 KNOWN_LOGS=$'\n'
 OWN_LOG=""
@@ -32,6 +33,11 @@ OPT_EFFORT=""
 OPT_CLASS=""
 OPT_OTHER_POOL=0
 OPT_CONTINUE=0
+OPT_READ_ONLY=0
+READ_ONLY_SRC=""
+READ_ONLY_REL=""
+READ_ONLY_SNAP=""
+READ_ONLY_RO=""
 
 usage_error() {
   printf 'agy-forward.sh: %s\n' "$1" >&2
@@ -65,6 +71,7 @@ parse_options() {
         ;;
       --other-pool) OPT_OTHER_POOL=1; shift ;;
       --continue) OPT_CONTINUE=1; shift ;;
+      --read-only) OPT_READ_ONLY=1; shift ;;
       *) usage_error "unknown option: $1" ;;
     esac
   done
@@ -526,20 +533,77 @@ warn_git_changes() {
   done <<<"$before"
 }
 
+create_read_only_worktree() {
+  READ_ONLY_REL=$(git rev-parse --show-prefix)
+  # git stash create snapshots staged and unstaged changes to tracked files without touching the caller's tree or stash list.
+  READ_ONLY_SNAP=$(git stash create 2>/dev/null)
+  READ_ONLY_RO="$(mktemp -d)/ro"
+  git -C "$READ_ONLY_SRC" worktree add --detach -q "$READ_ONLY_RO" "${READ_ONLY_SNAP:-HEAD}" || {
+    rmdir "$(dirname "$READ_ONLY_RO")" 2>/dev/null || :
+    echo "[antigravity-rescue] could not create the throwaway worktree"
+    return 1
+  }
+  cd "$READ_ONLY_RO/$READ_ONLY_REL" || {
+    cd "$READ_ONLY_SRC" || :
+    git -C "$READ_ONLY_SRC" worktree remove --force "$READ_ONLY_RO" || :
+    rmdir "$(dirname "$READ_ONLY_RO")" 2>/dev/null || :
+    return 1
+  }
+}
+
+remove_read_only_worktree() {
+  local link rc
+  cd "$READ_ONLY_SRC" || return 1
+  # Links are unlinked first because removing a worktree that holds a Windows junction can delete the junction's target.
+  find "$READ_ONLY_RO" -type l 2>/dev/null | while IFS= read -r link; do
+    cmd //c rmdir "$(cygpath -w "$link")" 2>/dev/null || rm -f "$link"
+  done
+  git -C "$READ_ONLY_SRC" worktree remove --force "$READ_ONLY_RO"
+  rc=$?
+  rmdir "$(dirname "$READ_ONLY_RO")" 2>/dev/null || :
+  return "$rc"
+}
+
+run_read_only() {
+  local args=("$@") rc
+  create_read_only_worktree || return $?
+  args[3]=$PWD
+  watch_command "$AGY" "${args[@]}"
+  rc=$?
+  echo "[antigravity-rescue] read-only run in a throwaway worktree of ${READ_ONLY_SNAP:-HEAD}; edits it attempted were discarded:"
+  git -C "$READ_ONLY_RO" status --short
+  remove_read_only_worktree || echo "[antigravity-rescue] could not remove the throwaway worktree" >&2
+  return "$rc"
+}
+
 run_task() {
   local task prompt args before rc
   task=$(cat)
   [ -n "${task//[[:space:]]/}" ] || usage_error "no task on stdin"
+  if [ "$OPT_READ_ONLY" = 1 ]; then
+    READ_ONLY_SRC=$(git rev-parse --show-toplevel 2>/dev/null) || {
+      echo "[antigravity-rescue] --read-only needs a git repository"
+      return "$USAGE_EXIT"
+    }
+  fi
   require_agy || return
   require_deny_rules || return
-  prompt=$(printf '%s\n\n%s' "$task" "$CONSTRAINTS")
+  if [ "$OPT_READ_ONLY" = 1 ]; then
+    prompt=$(printf '%s\n\n%s' "$task" "$READ_ONLY_CONSTRAINTS")
+  else
+    prompt=$(printf '%s\n\n%s' "$task" "$CONSTRAINTS")
+  fi
   args=(-p "$prompt" --add-dir "$PWD" --dangerously-skip-permissions --disable-slash-commands --output-format text --print-timeout 9m)
   [ -n "$OPT_MODEL" ] && args+=(--model "$OPT_MODEL")
   [ -n "$OPT_EFFORT" ] && is_gemini_slug "$OPT_MODEL" && args+=(--effort "$OPT_EFFORT")
   [ "$OPT_CONTINUE" = 1 ] && args+=(--continue)
   export GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="ssh -o BatchMode=yes"
   before=$(git_state) || before=""
-  watch_command "$AGY" "${args[@]}"
+  if [ "$OPT_READ_ONLY" = 1 ]; then
+    run_read_only "${args[@]}"
+  else
+    watch_command "$AGY" "${args[@]}"
+  fi
   rc=$?
   warn_git_changes "$before"
   return "$rc"

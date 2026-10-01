@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.0 — 2026-09-30
+
+- Add `run --read-only`: agy runs in a throwaway git worktree of a `git stash create` snapshot, so a review cannot touch the caller's working tree even when the model edits files anyway (it did in testing). Attempted edits are listed and discarded; links are unlinked before the worktree is removed so a Windows junction's target is never deleted.
+
 ## 0.4.0 — 2026-09-26
 
 - Quota watchdog: the forward now goes through `scripts/agy-forward.sh`, which

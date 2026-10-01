@@ -78,7 +78,7 @@ Delegación explícita:
 ```
 /antigravity:rescue diagnose why `npm test` fails in src/services/user-mapper.spec.ts and fix the spec
 /antigravity:rescue --background --model gemini-3.8-flash-low generate boilerplate specs for src/services/user-mapper.ts (signatures pasted below) ...
-/antigravity:rescue --model claude-opus-4-6-thinking second opinion: review the diff of HEAD for race conditions, report only, do not edit
+/antigravity:rescue --read-only --model claude-opus-4-6-thinking second opinion: review the diff of HEAD for race conditions
 ```
 
 ### Flags y límites
@@ -89,14 +89,20 @@ evita que se interpreten como parte de la tarea).
 
 - `--wait` (predeterminado) — en primer plano. Claude Code se bloquea en una
   sola llamada a `agy` y no muestra nada hasta que retorna; una ejecución puede
-  tardar hasta 9 minutos sin mostrar progreso. Interrumpirla (Esc / Ctrl+C) no
-  revierte nada: lo que `agy` ya haya editado permanece en tu árbol de trabajo;
-  ejecuta `git diff` antes de hacer cualquier otra cosa.
+  tardar hasta 9 minutos sin mostrar progreso. En una ejecución normal,
+  interrumpirla (Esc / Ctrl+C) no revierte nada: lo que `agy` ya haya editado
+  permanece en tu árbol de trabajo; ejecuta `git diff` antes de hacer cualquier
+  otra cosa. Usa `--read-only` para aislar una revisión de tu árbol de trabajo.
 - `--background` — Claude Code envía el subagente en segundo plano y sigue
   trabajando; la salida se te reenvía cuando termina la ejecución. Úsalo para
   cualquier cosa que pueda tardar más de un minuto.
 - `--model <slug>` / `--effort low|medium|high` — consulta «Dos pools de
   cuota» más abajo.
+- `--read-only` — ejecuta `agy` en un worktree git temporal basado en una
+  instantánea de `git stash create` con tus cambios preparados y sin preparar
+  de archivos rastreados (no incluye archivos sin rastrear). El script lista
+  los cambios que `agy` intentó hacer y los descarta; así tu árbol de trabajo
+  permanece intacto aunque el modelo edite archivos.
 
 Cada ejecución está limitada a 9 minutos (`--print-timeout 9m`). Al alcanzar
 el límite, `agy` termina con código 0 y devuelve la salida disponible junto con
@@ -382,7 +388,7 @@ Lo que esto **no** cubre — tenlo presente antes de delegar:
 | Componente | Propósito |
 |---|---|
 | `agents/antigravity-rescue.md` | Subagente reenviador ligero: ejecuta el preflight y la ejecución del script, salida devuelta textualmente |
-| `/antigravity:rescue` | Delega una tarea explícitamente (`--background`, `--wait`, `--model`, `--effort`) |
+| `/antigravity:rescue` | Delega una tarea explícitamente (`--background`, `--wait`, `--model`, `--effort`, `--read-only`) |
 | `/antigravity:setup` | Localiza el binario, versión mínima, prueba de autenticación, fusiona y verifica reglas de denegación, lista modelos |
 | `scripts/agy-forward.sh` | `preflight`: localiza `agy`, compuerta deny, ambos indicadores, pool y modelo. `run`: flags fijos, párrafo de restricciones y `agy`, abortado pronto cuando su propio log muestra `RESOURCE_EXHAUSTED` repetido, y después un aviso por cada cambio en `HEAD`, rama, stash, configuración git o hooks |
 | `tests/run.sh` | Pruebas herméticas del script (`agy` falso en `tests/fake-agy.sh`, fixtures de `/usage` en `tests/fixtures/`, `HOME` temporal) |

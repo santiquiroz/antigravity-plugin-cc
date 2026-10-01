@@ -563,6 +563,66 @@ test_run_that_leaves_git_alone_prints_no_warning() {
   assert_eq "$out" "done" "stdout"
 }
 
+test_read_only_run_leaves_the_working_tree_alone() {
+  local out rc content
+  new_repo
+  printf 'committed\n' >"$HOME/repo/a.txt"
+  git -C "$HOME/repo" add a.txt
+  git -C "$HOME/repo" commit -q -m content
+  printf 'uncommitted\n' >>"$HOME/repo/a.txt"
+  export FAKE_AGY_MODE=edit
+  out=$(cd "$HOME/repo" && printf 'review this tree' | bash "$FORWARD" run --read-only)
+  rc=$?
+  assert_eq "$rc" 0 "exit code" || return 1
+  assert_contains "$out" "edits it attempted were discarded" "discard report" || return 1
+  assert_contains "$out" " M a.txt" "tracked edit status" || return 1
+  assert_contains "$out" "?? new.txt" "untracked edit status" || return 1
+  content=$(cat "$HOME/repo/a.txt")
+  assert_eq "$content" $'committed\nuncommitted' "caller file content" || return 1
+  [ ! -e "$HOME/repo/new.txt" ] || fail "new.txt was created in the caller's repo" || return 1
+  assert_eq "$(git -C "$HOME/repo" stash list)" "" "stash list" || return 1
+  assert_eq "$(git -C "$HOME/repo" worktree list | wc -l | tr -d ' ')" 1 "worktree count"
+}
+
+test_read_only_run_sees_uncommitted_changes() {
+  local out rc delegate_pwd
+  new_repo
+  printf 'committed\n' >"$HOME/repo/a.txt"
+  git -C "$HOME/repo" add a.txt
+  git -C "$HOME/repo" commit -q -m content
+  printf 'uncommitted\n' >>"$HOME/repo/a.txt"
+  export FAKE_AGY_MODE=pwd
+  out=$(cd "$HOME/repo" && printf 'review this tree' | bash "$FORWARD" run --read-only)
+  rc=$?
+  assert_eq "$rc" 0 "exit code" || return 1
+  assert_not_contains "$(call_arg_after 1 --add-dir)" "$HOME/repo" "delegate workspace" || return 1
+  assert_contains "$out" "PWD" "delegate working directory" || return 1
+  delegate_pwd=${out#*PWD}
+  delegate_pwd=${delegate_pwd#?}
+  delegate_pwd=${delegate_pwd%%$'\n'*}
+  assert_not_contains "$delegate_pwd" "$HOME/repo" "delegate working directory" || return 1
+  assert_contains "$out" "read-only run in a throwaway worktree" "read-only report"
+}
+
+test_read_only_run_uses_read_only_constraints() {
+  local out prompt constraint
+  new_repo
+  out=$(cd "$HOME/repo" && printf 'review this tree' | bash "$FORWARD" run --read-only)
+  prompt=$(call_arg_after 1 -p)
+  constraint=$(sed -n 's/^readonly READ_ONLY_CONSTRAINTS="\([^"]*\)"$/\1/p' "$FORWARD")
+  assert_eq "${prompt##*$'\n\n'}" "$constraint" "read-only constraints" || return 1
+  assert_not_contains "$prompt" "Leave your changes in the working tree" "regular constraints"
+}
+
+test_read_only_outside_git_is_refused() {
+  local out rc
+  out=$(cd "$HOME" && printf 'review this tree' | bash "$FORWARD" run --read-only)
+  rc=$?
+  assert_eq "$rc" 64 "exit code" || return 1
+  assert_contains "$out" "--read-only needs a git repository" "repository requirement" || return 1
+  assert_eq "$(call_count)" 0 "agy calls"
+}
+
 test_unknown_subcommand_is_a_usage_error() {
   local rc
   bash "$FORWARD" launch >/dev/null 2>&1

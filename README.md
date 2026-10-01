@@ -75,7 +75,7 @@ Explicit delegation:
 ```
 /antigravity:rescue diagnose why `npm test` fails in src/services/user-mapper.spec.ts and fix the spec
 /antigravity:rescue --background --model gemini-3.8-flash-low generate boilerplate specs for src/services/user-mapper.ts (signatures pasted below) ...
-/antigravity:rescue --model claude-opus-4-6-thinking second opinion: review the diff of HEAD for race conditions, report only, do not edit
+/antigravity:rescue --read-only --model claude-opus-4-6-thinking second opinion: review the diff of HEAD for race conditions
 ```
 
 ### Flags and limits
@@ -86,13 +86,15 @@ task).
 
 - `--wait` (default) — foreground. Claude Code blocks on a single `agy` call
   and shows nothing until it returns; a run can take up to 9 minutes with no
-  visible progress. Interrupting it (Esc / Ctrl+C) rolls nothing back:
-  whatever agy had already edited stays in your working tree — run `git diff`
-  before doing anything else.
+  visible progress. In a regular run, interrupting it (Esc / Ctrl+C) rolls
+  nothing back: whatever agy had already edited stays in your working tree —
+  run `git diff` before doing anything else. Use `--read-only` to isolate a
+  review from your working tree.
 - `--background` — Claude Code dispatches the subagent in the background and
   keeps working; the output is relayed to you when the run completes. Use it
   for anything that may take more than a minute.
 - `--model <slug>` / `--effort low|medium|high` — see "Two quota pools" below.
+- `--read-only` — runs `agy` in a throwaway git worktree based on a `git stash create` snapshot of your staged and unstaged tracked changes (untracked files are not included). The script lists attempted edits and discards them, keeping your working tree untouched even if the model edits files.
 
 Every run is capped at 9 minutes (`--print-timeout 9m`). At the cap `agy`
 exits 0 with the output so far and an `[agy] print timeout` line (kept from
@@ -354,7 +356,7 @@ What this does **not** cover — know it before delegating:
 | Piece | Purpose |
 |---|---|
 | `agents/antigravity-rescue.md` | Thin forwarder subagent — runs the script's preflight and run, output returned verbatim |
-| `/antigravity:rescue` | Delegate a task explicitly (`--background`, `--wait`, `--model`, `--effort`) |
+| `/antigravity:rescue` | Delegate a task explicitly (`--background`, `--wait`, `--model`, `--effort`, `--read-only`) |
 | `/antigravity:setup` | Locate binary, version floor, auth probe, merge + verify deny rules, list models |
 | `scripts/agy-forward.sh` | `preflight`: locates `agy`, deny gate, both gauges, pool and model. `run`: fixed flags, constraints paragraph, `agy`, aborted early when its own log shows repeated `RESOURCE_EXHAUSTED`, then a warning for each change to `HEAD`, branch, stash, git config or hooks |
 | `tests/run.sh` | Hermetic tests for the script (fake `agy` in `tests/fake-agy.sh`, `/usage` fixtures in `tests/fixtures/`, temporary `HOME`) |

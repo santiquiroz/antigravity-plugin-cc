@@ -1,6 +1,6 @@
 ---
 description: Delegate a well-specified coding task to Google Antigravity CLI (agy) through the antigravity-rescue subagent
-argument-hint: "[--background|--wait] [--model <slug>] [--effort low|medium|high] [the task agy should perform]"
+argument-hint: "[--background|--wait] [--model <slug>] [--effort low|medium|high] [--read-only] [the task agy should perform]"
 allowed-tools: AskUserQuestion, Agent
 ---
 
@@ -18,6 +18,7 @@ Execution mode:
 - If neither flag is present, default to foreground.
 - `--background` and `--wait` are execution flags for Claude Code. Do not forward them in the prompt, and do not treat them as part of the natural-language task text.
 - `--model <slug>` and `--effort <level>` are runtime-selection flags. Preserve them in the forwarded prompt (the subagent maps them to `agy` flags), but do not treat them as part of the natural-language task text.
+- `--read-only` is a runtime flag. Preserve it in the forwarded prompt (the subagent maps it to `agy` behavior), but do not treat it as part of the natural-language task text.
 
 Operating rules:
 

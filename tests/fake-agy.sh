@@ -104,6 +104,8 @@ main() {
     git-config) git config alias.x '!echo'; echo "done" ;;
     git-switch) git switch -q -c delegate; echo "done" ;;
     git-stash) stash_a_change; echo "done" ;;
+    edit) printf 'agy-edit\n' >>a.txt; printf 'new\n' >new.txt; echo "done" ;;
+    pwd) printf 'PWD='; pwd; echo "done" ;;
     *) echo "done" ;;
   esac
 }
