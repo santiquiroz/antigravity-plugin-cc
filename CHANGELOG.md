@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.1 — 2026-10-07
+
+- Docs stand on their own, without a multi-lane setup: both READMEs rewritten
+  (no "second lane", "when Codex/Copilot is out of quota" or lane ranking) with
+  When it helps, Configuration, Troubleshooting and Using it with other
+  delegates sections; the delegation guide and CLAUDE.md snippet rewritten the
+  same way; the `antigravity-rescue` description and body, the command
+  fallbacks and the plugin/marketplace descriptions made neutral. No behavior
+  change.
+
 ## 0.5.0 — 2026-09-30
 
 - Add `run --read-only`: agy runs in a throwaway git worktree of a `git stash create` snapshot, so a review cannot touch the caller's working tree even when the model edits files anyway (it did in testing). Attempted edits are listed and discarded; links are unlinked before the worktree is removed so a Windows junction's target is never deleted.

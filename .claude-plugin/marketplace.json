@@ -5,13 +5,13 @@
   },
   "metadata": {
     "description": "Antigravity plugin for Claude Code: delegate coding tasks to Google Antigravity CLI (agy) headless.",
-    "version": "0.5.0"
+    "version": "0.5.1"
   },
   "plugins": [
     {
       "name": "antigravity",
-      "description": "Delegate coding tasks from Claude Code to Google Antigravity CLI (agy) in headless mode — a frontier-capable second lane with its own quota.",
-      "version": "0.5.0",
+      "description": "Delegate coding tasks from Claude Code to Google Antigravity CLI (agy) in headless mode — frontier models on their own quota, selectable per call.",
+      "version": "0.5.1",
       "author": {
         "name": "Santiago Quiroz Upegui"
       },

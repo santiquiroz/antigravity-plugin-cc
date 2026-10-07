@@ -1,7 +1,7 @@
 {
   "name": "antigravity",
-  "version": "0.5.0",
-  "description": "Delegate coding tasks from Claude Code to Google Antigravity CLI (agy) in headless mode — a frontier-capable second lane with its own quota.",
+  "version": "0.5.1",
+  "description": "Delegate coding tasks from Claude Code to Google Antigravity CLI (agy) in headless mode — frontier models on their own quota, selectable per call.",
   "author": {
     "name": "Santiago Quiroz Upegui"
   },
