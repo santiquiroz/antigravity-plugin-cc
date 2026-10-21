@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.0 — 2026-10-21
+
+- The constraints paragraph now asks the delegate to end with one final `STATUS:` line — `DONE`, `DONE_WITH_CONCERNS: <risks>`, `NEEDS_CONTEXT: <question>` or `BLOCKED: <reason>` — so the caller can tell a finished task from one that needs more information without re-reading the whole report.
+
 ## 0.5.1 — 2026-10-07
 
 - Docs stand on their own, without a multi-lane setup: both READMEs rewritten
